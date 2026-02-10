@@ -15,6 +15,7 @@ import { Config } from "@/config/config"
 import { SessionCompaction } from "./compaction"
 import { PermissionNext } from "@/permission/next"
 import { Question } from "@/question"
+import { sessionTrajectoryTracker } from "./trajectory-integration"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -46,6 +47,15 @@ export namespace SessionProcessor {
         log.info("process")
         needsCompaction = false
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
+
+        if (sessionTrajectoryTracker.isEnabled()) {
+          await sessionTrajectoryTracker.startSession(
+            input.sessionID,
+            input.assistantMessage.id,
+            { directory: streamInput.sessionID }
+          )
+        }
+
         while (true) {
           try {
             let currentText: MessageV2.TextPart | undefined
@@ -74,6 +84,13 @@ export namespace SessionProcessor {
                     },
                     metadata: value.providerMetadata,
                   }
+                  if (sessionTrajectoryTracker.isEnabled()) {
+                    await sessionTrajectoryTracker.handleReasoningStart(
+                      input.assistantMessage.id,
+                      value.id,
+                      value.providerMetadata
+                    )
+                  }
                   break
 
                 case "reasoning-delta":
@@ -82,6 +99,9 @@ export namespace SessionProcessor {
                     part.text += value.text
                     if (value.providerMetadata) part.metadata = value.providerMetadata
                     if (part.text) await Session.updatePart({ part, delta: value.text })
+                    if (sessionTrajectoryTracker.isEnabled()) {
+                      await sessionTrajectoryTracker.handleReasoningDelta(value.id, value.text)
+                    }
                   }
                   break
 
@@ -96,6 +116,12 @@ export namespace SessionProcessor {
                     }
                     if (value.providerMetadata) part.metadata = value.providerMetadata
                     await Session.updatePart(part)
+                    if (sessionTrajectoryTracker.isEnabled()) {
+                      await sessionTrajectoryTracker.handleReasoningEnd(
+                        input.assistantMessage.id,
+                        value.id
+                      )
+                    }
                     delete reasoningMap[value.id]
                   }
                   break
@@ -139,6 +165,15 @@ export namespace SessionProcessor {
                       metadata: value.providerMetadata,
                     })
                     toolcalls[value.toolCallId] = part as MessageV2.ToolPart
+
+                    if (sessionTrajectoryTracker.isEnabled()) {
+                      await sessionTrajectoryTracker.handleToolCallStart(
+                        input.assistantMessage.id,
+                        value.toolCallId,
+                        value.toolName,
+                        value.input
+                      )
+                    }
 
                     const parts = await MessageV2.parts(input.assistantMessage.id)
                     const lastThree = parts.slice(-DOOM_LOOP_THRESHOLD)
@@ -188,6 +223,15 @@ export namespace SessionProcessor {
                       },
                     })
 
+                    if (sessionTrajectoryTracker.isEnabled()) {
+                      await sessionTrajectoryTracker.handleToolCallResult(
+                        input.assistantMessage.id,
+                        value.toolCallId,
+                        value.output.output,
+                        "completed"
+                      )
+                    }
+
                     delete toolcalls[value.toolCallId]
                   }
                   break
@@ -209,6 +253,14 @@ export namespace SessionProcessor {
                       },
                     })
 
+                    if (sessionTrajectoryTracker.isEnabled()) {
+                      await sessionTrajectoryTracker.handleToolCallError(
+                        input.assistantMessage.id,
+                        value.toolCallId,
+                        (value.error as any).toString()
+                      )
+                    }
+
                     if (
                       value.error instanceof PermissionNext.RejectedError ||
                       value.error instanceof Question.RejectedError
@@ -220,6 +272,13 @@ export namespace SessionProcessor {
                   break
                 }
                 case "error":
+                  if (sessionTrajectoryTracker.isEnabled()) {
+                    await sessionTrajectoryTracker.handleError(
+                      input.assistantMessage.id,
+                      value.error?.message || String(value.error),
+                      value.error?.stack
+                    )
+                  }
                   throw value.error
 
                 case "start-step":

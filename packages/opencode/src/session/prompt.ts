@@ -46,6 +46,7 @@ import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
+import { sessionTrajectoryTracker } from "./trajectory-integration"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -266,6 +267,8 @@ export namespace SessionPrompt {
     }
 
     using _ = defer(() => cancel(sessionID))
+
+    await sessionTrajectoryTracker.initialize()
 
     let step = 0
     const session = await Session.get(sessionID)
@@ -493,7 +496,12 @@ export namespace SessionPrompt {
           sessionID,
           auto: task.auto,
         })
-        if (result === "stop") break
+        if (result === "stop") {
+          if (sessionTrajectoryTracker.isEnabled()) {
+            await sessionTrajectoryTracker.endSession("completed")
+          }
+          break
+        }
         continue
       }
 
@@ -617,7 +625,12 @@ export namespace SessionPrompt {
         tools,
         model,
       })
-      if (result === "stop") break
+      if (result === "stop") {
+        if (sessionTrajectoryTracker.isEnabled()) {
+          await sessionTrajectoryTracker.endSession("completed")
+        }
+        break
+      }
       if (result === "compact") {
         await SessionCompaction.create({
           sessionID,
@@ -1189,6 +1202,17 @@ export namespace SessionPrompt {
     await Session.updateMessage(info)
     for (const part of parts) {
       await Session.updatePart(part)
+    }
+
+    if (sessionTrajectoryTracker.isEnabled()) {
+      const content = parts
+        .filter(p => p.type === "text")
+        .map(p => (p as any).text)
+        .join("\n")
+
+      if (content) {
+        await sessionTrajectoryTracker.captureUserMessage(info.id, content)
+      }
     }
 
     return {
