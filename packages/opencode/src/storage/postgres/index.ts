@@ -5,5 +5,3 @@ export * from './knowledge';
 export * from './capture';
 export * from './config';
 export * from './integration';
-export * from './enhanced-trajectory';
-export * from './enhanced-capture';

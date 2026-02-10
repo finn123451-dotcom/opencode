@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { trajectoryStorage, CompleteTrajectoryData, SessionData, MessageData, StepData, ToolCallData, TrajectoryData } from './trajectory';
+import { trajectoryStorage, CompleteTrajectoryData, SessionData, MessageData, StepData, ToolCallData, TrajectoryData, MessagePartData, ReasoningChainData, ToolAttachmentData, FileOperationData, SnapshotData, PatchData, SubtaskData, SessionCompactionData, RetryData } from './trajectory';
 import { knowledgeBase, memoryManager } from './knowledge';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -8,10 +8,13 @@ export interface TrajectoryCaptureConfig {
   storeEmbeddings: boolean;
   generateKnowledge: boolean;
   captureRate: number;
+  captureFiles: boolean;
+  captureSnapshots: boolean;
+  capturePatches: boolean;
 }
 
 export interface CaptureEvent {
-  type: 'session_start' | 'session_end' | 'message' | 'reasoning' | 'tool_call' | 'tool_result' | 'step' | 'error';
+  type: string;
   timestamp: Date;
   data: any;
 }
@@ -20,11 +23,25 @@ export class TrajectoryCapture extends EventEmitter {
   private config: TrajectoryCaptureConfig;
   private currentSessionId: string | null = null;
   private currentTrajectoryId: string | null = null;
-  private messageBuffer: MessageData[] = [];
-  private stepBuffer: StepData[] = [];
-  private toolCallBuffer: ToolCallData[] = [];
+  private currentMessageId: string | null = null;
   private stepCounter: number = 0;
+  private toolCallCounter: number = 0;
   private startTime: Date | null = null;
+
+  private sessionBuffer: Partial<SessionData> | null = null;
+  private messageBuffer: MessageData[] = [];
+  private partBuffer: MessagePartData[] = [];
+  private textPartBuffer: any[] = [];
+  private reasoningBuffer: ReasoningChainData[] = [];
+  private toolCallBuffer: ToolCallData[] = [];
+  private attachmentBuffer: ToolAttachmentData[] = [];
+  private fileOpBuffer: FileOperationData[] = [];
+  private snapshotBuffer: SnapshotData[] = [];
+  private patchBuffer: PatchData[] = [];
+  private stepBuffer: StepData[] = [];
+  private subtaskBuffer: SubtaskData[] = [];
+  private compactionBuffer: SessionCompactionData[] = [];
+  private retryBuffer: RetryData[] = [];
 
   constructor(config: Partial<TrajectoryCaptureConfig> = {}) {
     super();
@@ -33,6 +50,9 @@ export class TrajectoryCapture extends EventEmitter {
       storeEmbeddings: config.storeEmbeddings ?? true,
       generateKnowledge: config.generateKnowledge ?? true,
       captureRate: config.captureRate ?? 1.0,
+      captureFiles: config.captureFiles ?? true,
+      captureSnapshots: config.captureSnapshots ?? true,
+      capturePatches: config.capturePatches ?? true,
     };
   }
 
@@ -44,51 +64,55 @@ export class TrajectoryCapture extends EventEmitter {
     console.log('Trajectory capture initialized');
   }
 
-  async startSession(sessionData: {
-    id: string;
+  async startSession(sessionInfo: {
+    sessionId: string;
     projectId?: string;
-    directory?: string;
+    userId?: string;
+    parentSessionId?: string;
+    directory: string;
     title?: string;
-    metadata?: Record<string, any>;
+    version?: string;
+    permission?: Record<string, any>[];
   }): Promise<string> {
-    this.currentSessionId = sessionData.id;
+    if (!this.config.enabled) return sessionInfo.sessionId;
+
+    this.currentSessionId = sessionInfo.sessionId;
     this.startTime = new Date();
 
-    const session: SessionData = {
-      id: sessionData.id,
-      projectId: sessionData.projectId,
-      directory: sessionData.directory,
-      title: sessionData.title,
-      metadata: sessionData.metadata,
+    this.sessionBuffer = {
+      id: sessionInfo.sessionId,
+      projectId: sessionInfo.projectId,
+      userId: sessionInfo.userId,
+      parentSessionId: sessionInfo.parentSessionId,
+      directory: sessionInfo.directory,
+      title: sessionInfo.title,
+      version: sessionInfo.version,
+      permission: sessionInfo.permission,
     };
 
-    await trajectoryStorage.createSession(session);
+    await trajectoryStorage.createSession(this.sessionBuffer as SessionData);
 
     this.emit('session_start', {
       type: 'session_start',
       timestamp: new Date(),
-      data: session,
+      data: sessionInfo,
     });
 
-    return sessionData.id;
+    return sessionInfo.sessionId;
   }
 
   async endSession(status: 'completed' | 'failed' | 'cancelled' = 'completed'): Promise<string | null> {
-    if (!this.currentSessionId || !this.currentTrajectoryId) {
-      return null;
-    }
+    if (!this.config.enabled || !this.currentSessionId) return null;
 
-    await trajectoryStorage.updateTrajectory(this.currentTrajectoryId, {
-      status,
-      totalSteps: this.stepCounter,
-      totalDurationMs: this.startTime ? Date.now() - this.startTime.getTime() : undefined,
-    });
+    const trajectoryId = this.currentTrajectoryId;
 
-    const trajectory = await trajectoryStorage.getTrajectoryWithDetails(this.currentTrajectoryId);
-    if (trajectory && this.config.generateKnowledge) {
+    if (trajectoryId && this.config.generateKnowledge) {
       try {
-        await knowledgeBase.generateKnowledgeFromTrajectory(trajectory);
-        await memoryManager.extractAndStoreMemories(trajectory);
+        const trajectory = await trajectoryStorage.getTrajectory(trajectoryId);
+        if (trajectory) {
+          await knowledgeBase.generateKnowledgeFromTrajectory(trajectory as any);
+          await memoryManager.extractAndStoreMemories(trajectory as any);
+        }
       } catch (error) {
         console.error('Failed to generate knowledge from completed trajectory:', error);
       }
@@ -97,10 +121,9 @@ export class TrajectoryCapture extends EventEmitter {
     this.emit('session_end', {
       type: 'session_end',
       timestamp: new Date(),
-      data: { sessionId: this.currentSessionId, trajectoryId: this.currentTrajectoryId, status },
+      data: { sessionId: this.currentSessionId, trajectoryId, status },
     });
 
-    const trajectoryId = this.currentTrajectoryId;
     this.resetSession();
     return trajectoryId;
   }
@@ -108,104 +131,187 @@ export class TrajectoryCapture extends EventEmitter {
   private resetSession(): void {
     this.currentSessionId = null;
     this.currentTrajectoryId = null;
-    this.messageBuffer = [];
-    this.stepBuffer = [];
-    this.toolCallBuffer = [];
+    this.currentMessageId = null;
     this.stepCounter = 0;
+    this.toolCallCounter = 0;
     this.startTime = null;
+    this.sessionBuffer = null;
+    this.messageBuffer = [];
+    this.partBuffer = [];
+    this.textPartBuffer = [];
+    this.reasoningBuffer = [];
+    this.toolCallBuffer = [];
+    this.attachmentBuffer = [];
+    this.fileOpBuffer = [];
+    this.snapshotBuffer = [];
+    this.patchBuffer = [];
+    this.stepBuffer = [];
+    this.subtaskBuffer = [];
+    this.compactionBuffer = [];
+    this.retryBuffer = [];
   }
 
-  async captureMessage(message: {
-    id?: string;
-    role: 'user' | 'assistant' | 'system';
-    content: string;
-    metadata?: Record<string, any>;
-  }): Promise<string> {
-    if (!this.currentSessionId) {
-      throw new Error('No active session');
-    }
+  async captureUserMessage(messageId: string, content: string, metadata?: {
+    parentId?: string;
+    model?: string;
+    providerId?: string;
+    agent?: string;
+    variant?: string;
+    systemPrompt?: string;
+    tokens?: number;
+  }): Promise<void> {
+    if (!this.config.enabled || !this.currentSessionId) return;
 
-    const messageId = message.id || uuidv4();
     const messageData: MessageData = {
       id: messageId,
       sessionId: this.currentSessionId,
-      role: message.role,
-      content: message.content,
+      parentId: metadata?.parentId,
+      role: 'user',
+      content,
+      model: metadata?.model,
+      providerId: metadata?.providerId,
+      agent: metadata?.agent,
+      variant: metadata?.variant,
+      systemPrompt: metadata?.systemPrompt,
+      timeCreated: Date.now(),
       stepOrder: this.messageBuffer.length,
-      metadata: message.metadata,
     };
 
     await trajectoryStorage.createMessage(messageData);
     this.messageBuffer.push(messageData);
+    this.currentMessageId = messageId;
 
     this.emit('message', {
-      type: 'message',
+      type: 'user_message',
       timestamp: new Date(),
       data: messageData,
     });
-
-    return messageId;
   }
 
-  async captureReasoning(messageId: string, reasoning: {
-    content: string;
+  async captureAssistantMessage(messageId: string, content: string, metadata?: {
+    parentId?: string;
     model?: string;
-    metadata?: Record<string, any>;
-  }): Promise<string> {
-    if (!this.currentSessionId) {
-      throw new Error('No active session');
-    }
+    providerId?: string;
+    agent?: string;
+    variant?: string;
+    finishReason?: string;
+    cost?: number;
+    tokensInput?: number;
+    tokensOutput?: number;
+    tokensReasoning?: number;
+  }): Promise<void> {
+    if (!this.config.enabled || !this.currentSessionId) return;
 
-    const reasoningData = {
-      id: uuidv4(),
+    const messageData: MessageData = {
+      id: messageId,
+      sessionId: this.currentSessionId,
+      parentId: metadata?.parentId,
+      role: 'assistant',
+      content,
+      model: metadata?.model,
+      providerId: metadata?.providerId,
+      agent: metadata?.agent,
+      variant: metadata?.variant,
+      finishReason: metadata?.finishReason,
+      cost: metadata?.cost,
+      tokensInput: metadata?.tokensInput,
+      tokensOutput: metadata?.tokensOutput,
+      tokensReasoning: metadata?.tokensReasoning,
+      timeCreated: Date.now(),
+      timeCompleted: Date.now(),
+      stepOrder: this.messageBuffer.length,
+    };
+
+    await trajectoryStorage.createMessage(messageData);
+    this.messageBuffer.push(messageData);
+    this.currentMessageId = messageId;
+
+    this.emit('message', {
+      type: 'assistant_message',
+      timestamp: new Date(),
+      data: messageData,
+    });
+  }
+
+  async captureReasoningStart(messageId: string, reasoningId: string, metadata?: {
+    model?: string;
+    providerMetadata?: Record<string, any>;
+  }): Promise<void> {
+    if (!this.config.enabled || !this.currentSessionId) return;
+
+    const reasoningData: ReasoningChainData = {
+      id: reasoningId,
       messageId,
-      content: reasoning.content,
-      model: reasoning.model,
-      metadata: reasoning.metadata,
+      content: '',
+      model: metadata?.model,
+      providerMetadata: metadata?.providerMetadata,
+      timeStart: Date.now(),
     };
 
     await trajectoryStorage.createReasoningChain(reasoningData);
+    this.reasoningBuffer.push(reasoningData);
 
-    this.emit('reasoning', {
-      type: 'reasoning',
+    this.emit('reasoning_start', {
+      type: 'reasoning_start',
       timestamp: new Date(),
       data: reasoningData,
     });
-
-    return reasoningData.id;
   }
 
-  async startToolCall(messageId: string, toolCall: {
-    toolName: string;
-    input: Record<string, any>;
-    metadata?: Record<string, any>;
-  }): Promise<string> {
-    if (!this.currentSessionId) {
-      throw new Error('No active session');
+  async captureReasoningDelta(reasoningId: string, text: string): Promise<void> {
+    if (!this.config.enabled) return;
+
+    const reasoning = this.reasoningBuffer.find(r => r.id === reasoningId);
+    if (reasoning) {
+      reasoning.content += text;
+    }
+  }
+
+  async captureReasoningEnd(reasoningId: string, fullContent: string): Promise<void> {
+    if (!this.config.enabled) return;
+
+    const reasoning = this.reasoningBuffer.find(r => r.id === reasoningId);
+    if (reasoning) {
+      reasoning.content = fullContent;
+      reasoning.timeEnd = Date.now();
     }
 
-    const toolCallId = uuidv4();
+    this.emit('reasoning_end', {
+      type: 'reasoning_end',
+      timestamp: new Date(),
+      data: { id: reasoningId, content: fullContent },
+    });
+  }
+
+  async captureToolCallStart(messageId: string, toolCallId: string, callId: string, toolName: string, input: Record<string, any>, metadata?: {
+    title?: string;
+  }): Promise<string> {
+    if (!this.config.enabled || !this.currentSessionId) return '';
+
     const toolCallData: ToolCallData = {
       id: toolCallId,
       messageId,
-      toolName: toolCall.toolName,
-      input: toolCall.input,
+      callId,
+      toolName,
+      input,
       status: 'running',
-      startTime: new Date(),
-      metadata: toolCall.metadata,
+      title: metadata?.title,
+      timeCreated: Date.now(),
+      timeStart: Date.now(),
     };
 
     await trajectoryStorage.createToolCall(toolCallData);
     this.toolCallBuffer.push(toolCallData);
+    this.toolCallCounter++;
 
     await this.captureStep(messageId, {
       stepType: 'tool_call',
-      content: `${toolCall.toolName}(${JSON.stringify(toolCall.input)})`,
-      inputData: toolCall.input,
+      content: `${toolName}(${JSON.stringify(input)})`,
+      inputData: input,
     });
 
-    this.emit('tool_call', {
-      type: 'tool_call',
+    this.emit('tool_call_start', {
+      type: 'tool_call_start',
       timestamp: new Date(),
       data: toolCallData,
     });
@@ -213,74 +319,74 @@ export class TrajectoryCapture extends EventEmitter {
     return toolCallId;
   }
 
-  async completeToolCall(
-    toolCallId: string,
-    result: {
-      output: string;
-      status?: 'completed' | 'failed';
-      metadata?: Record<string, any>;
-    }
-  ): Promise<void> {
+  async captureToolCallComplete(toolCallId: string, result: {
+    output: string;
+    status?: 'completed' | 'failed';
+    title?: string;
+    truncated?: boolean;
+    outputPath?: string;
+    durationMs?: number;
+    attachments?: Array<{
+      filename?: string;
+      mime?: string;
+      url?: string;
+      sourceType?: string;
+      sourcePath?: string;
+    }>;
+  }): Promise<void> {
+    if (!this.config.enabled) return;
+
     const toolCall = this.toolCallBuffer.find(tc => tc.id === toolCallId);
-    if (!toolCall) {
-      console.warn(`Tool call ${toolCallId} not found in buffer`);
-      return;
+    if (toolCall) {
+      toolCall.output = result.output;
+      toolCall.status = result.status || 'completed';
+      toolCall.title = result.title || toolCall.title;
+      toolCall.truncated = result.truncated;
+      toolCall.outputPath = result.outputPath;
+      toolCall.durationMs = result.durationMs || (toolCall.timeStart ? Date.now() - toolCall.timeStart : undefined);
+      toolCall.timeEnd = new Date();
+
+      await trajectoryStorage.updateToolCall(toolCallId, {
+        output: result.output,
+        status: toolCall.status,
+        title: toolCall.title,
+        truncated: toolCall.truncated,
+        durationMs: toolCall.durationMs,
+        timeEnd: toolCall.timeEnd,
+      });
     }
 
-    toolCall.output = result.output;
-    toolCall.status = result.status || 'completed';
-    toolCall.endTime = new Date();
-    if (toolCall.startTime) {
-      toolCall.durationMs = toolCall.endTime.getTime() - toolCall.startTime.getTime();
-    }
-    if (result.metadata) {
-      toolCall.metadata = { ...toolCall.metadata, ...result.metadata };
-    }
-
-    await trajectoryStorage.updateToolCall(toolCallId, {
-      output: result.output,
-      status: toolCall.status,
-      durationMs: toolCall.durationMs,
-      endTime: toolCall.endTime,
-    });
-
-    await this.captureStep(toolCall.messageId, {
-      stepType: 'tool_result',
-      content: result.output,
-      outputData: { output: result.output, ...result.metadata },
-    });
-
-    this.emit('tool_result', {
-      type: 'tool_result',
+    this.emit('tool_call_complete', {
+      type: 'tool_call_complete',
       timestamp: new Date(),
       data: { toolCallId, ...result },
     });
   }
 
   async captureStep(messageId: string, step: {
-    stepType: 'reasoning' | 'tool_call' | 'tool_result' | 'text' | 'error';
+    stepType: 'reasoning' | 'tool_call' | 'tool_result' | 'text' | 'error' | 'subtask' | 'compaction' | 'text_generation';
     content?: string;
     inputData?: Record<string, any>;
     outputData?: Record<string, any>;
+    reason?: string;
     durationMs?: number;
-    metadata?: Record<string, any>;
   }): Promise<string> {
-    if (!this.currentSessionId) {
-      throw new Error('No active session');
-    }
+    if (!this.config.enabled || !this.currentSessionId) return '';
 
     const stepId = uuidv4();
     const stepData: StepData = {
       id: stepId,
-      messageId,
       trajectoryId: this.currentTrajectoryId || undefined,
+      sessionId: this.currentSessionId,
+      messageId,
       stepType: step.stepType,
       stepOrder: ++this.stepCounter,
       content: step.content,
       inputData: step.inputData,
       outputData: step.outputData,
+      reason: step.reason,
       durationMs: step.durationMs,
-      metadata: step.metadata,
+      timeStart: Date.now(),
     };
 
     await trajectoryStorage.createStep(stepData);
@@ -295,8 +401,28 @@ export class TrajectoryCapture extends EventEmitter {
     return stepId;
   }
 
+  async captureError(messageId: string, error: {
+    message: string;
+    stack?: string;
+    metadata?: Record<string, any>;
+  }): Promise<void> {
+    if (!this.config.enabled) return;
+
+    await this.captureStep(messageId, {
+      stepType: 'error',
+      content: error.message,
+      outputData: { error: error.message, stack: error.stack, ...error.metadata },
+    });
+
+    this.emit('error', {
+      type: 'error',
+      timestamp: new Date(),
+      data: { messageId, ...error },
+    });
+  }
+
   async createTrajectory(title?: string, description?: string): Promise<string> {
-    if (!this.currentSessionId || this.messageBuffer.length === 0) {
+    if (!this.config.enabled || !this.currentSessionId || this.messageBuffer.length === 0) {
       throw new Error('No active session or no messages to create trajectory');
     }
 
@@ -304,11 +430,16 @@ export class TrajectoryCapture extends EventEmitter {
     const trajectoryData: TrajectoryData = {
       id: trajectoryId,
       sessionId: this.currentSessionId,
-      messageId: this.messageBuffer[this.messageBuffer.length - 1].id,
+      rootMessageId: this.messageBuffer[0]?.id,
+      model: this.messageBuffer.find(m => m.role === 'assistant')?.model,
+      agent: this.messageBuffer.find(m => m.role === 'assistant')?.agent,
       title: title || this.messageBuffer[0]?.content?.substring(0, 100) || '未命名轨迹',
       description,
       status: 'active',
       totalSteps: this.stepCounter,
+      totalToolCalls: this.toolCallCounter,
+      totalDurationMs: this.startTime ? Date.now() - this.startTime.getTime() : undefined,
+      timeCreated: this.startTime?.getTime() || Date.now(),
     };
 
     await trajectoryStorage.createTrajectory(trajectoryData);
@@ -322,50 +453,55 @@ export class TrajectoryCapture extends EventEmitter {
   }
 
   async storeCompleteTrajectory(title?: string, description?: string): Promise<string> {
-    if (!this.currentSessionId) {
+    if (!this.config.enabled || !this.currentSessionId) {
       throw new Error('No active session');
     }
 
     const trajectoryId = await this.createTrajectory(title, description);
 
     const completeData: CompleteTrajectoryData = {
-      session: this.messageBuffer[0]?.metadata?.sessionData || {
-        id: this.currentSessionId,
-        title: this.messageBuffer[0]?.content?.substring(0, 100),
-      },
+      session: this.sessionBuffer as SessionData,
       messages: [...this.messageBuffer],
-      reasoningChains: [],
+      parts: [...this.partBuffer],
+      textParts: [...this.textPartBuffer],
+      reasoningChains: [...this.reasoningBuffer],
       toolCalls: [...this.toolCallBuffer],
+      attachments: [...this.attachmentBuffer],
+      fileOperations: [...this.fileOpBuffer],
+      snapshots: [...this.snapshotBuffer],
+      patches: [...this.patchBuffer],
       steps: [...this.stepBuffer],
+      subtasks: [...this.subtaskBuffer],
+      compactions: [...this.compactionBuffer],
+      retries: [...this.retryBuffer],
       trajectory: {
         id: trajectoryId,
         sessionId: this.currentSessionId,
-        messageId: this.messageBuffer[this.messageBuffer.length - 1]?.id,
+        model: this.messageBuffer.find(m => m.role === 'assistant')?.model,
+        agent: this.messageBuffer.find(m => m.role === 'assistant')?.agent,
         title: title || this.messageBuffer[0]?.content?.substring(0, 100),
         description,
         status: 'active',
         totalSteps: this.stepCounter,
+        totalToolCalls: this.toolCallCounter,
+        totalDurationMs: this.startTime ? Date.now() - this.startTime.getTime() : undefined,
+        timeCreated: this.startTime?.getTime() || Date.now(),
       },
     };
 
-    if (this.config.storeEmbeddings) {
-      return await trajectoryStorage.storeTrajectoryWithEmbeddings(completeData);
-    } else {
-      return await trajectoryStorage.storeCompleteTrajectory(completeData);
-    }
+    await trajectoryStorage.storeCompleteTrajectory(completeData);
+
+    return trajectoryId;
   }
 
-  async captureError(messageId: string, error: {
-    message: string;
-    stack?: string;
-    metadata?: Record<string, any>;
-  }): Promise<string> {
-    return await this.captureStep(messageId, {
-      stepType: 'error',
-      content: error.message,
-      outputData: { error: error.message, stack: error.stack, ...error.metadata },
-      metadata: error.metadata,
-    });
+  async searchKnowledge(query: string, options?: { category?: string; limit?: number }): Promise<any[]> {
+    if (!this.config.enabled) return [];
+    return knowledgeBase.searchKnowledge(query, options);
+  }
+
+  async getRelevantMemories(scope: string): Promise<any[]> {
+    if (!this.config.enabled) return [];
+    return memoryManager.getMemoriesByScope(scope);
   }
 
   getConfig(): TrajectoryCaptureConfig {
@@ -384,16 +520,15 @@ export class TrajectoryCapture extends EventEmitter {
     return this.currentSessionId;
   }
 
-  getCurrentTrajectoryId(): string | null {
-    return this.currentTrajectoryId;
-  }
-
   getStats(): {
     sessionId: string | null;
     trajectoryId: string | null;
     messageCount: number;
     stepCount: number;
     toolCallCount: number;
+    fileOperationCount: number;
+    snapshotCount: number;
+    patchCount: number;
     startTime: Date | null;
   } {
     return {
@@ -401,9 +536,21 @@ export class TrajectoryCapture extends EventEmitter {
       trajectoryId: this.currentTrajectoryId,
       messageCount: this.messageBuffer.length,
       stepCount: this.stepCounter,
-      toolCallCount: this.toolCallBuffer.length,
+      toolCallCount: this.toolCallCounter,
+      fileOperationCount: this.fileOpBuffer.length,
+      snapshotCount: this.snapshotBuffer.length,
+      patchCount: this.patchBuffer.length,
       startTime: this.startTime,
     };
+  }
+
+  disable(): void {
+    this.config.enabled = false;
+  }
+
+  async enable(): Promise<void> {
+    this.config.enabled = true;
+    await this.initialize();
   }
 }
 
