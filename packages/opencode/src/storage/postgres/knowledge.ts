@@ -33,7 +33,14 @@ export interface MemoryData {
 }
 
 export class KnowledgeBase {
-  private pool = getPool();
+  private _pool: ReturnType<typeof getPool> | null = null;
+
+  private get pool() {
+    if (!this._pool) {
+      this._pool = getPool();
+    }
+    return this._pool;
+  }
 
   async createKnowledge(data: KnowledgeEntry): Promise<string> {
     const id = data.id || crypto.randomUUID();
@@ -461,7 +468,14 @@ ${trajectory.toolCalls.map(tc => `工具: ${tc.tool_name}\n状态: ${tc.status}\
 }
 
 export class MemoryManager {
-  private pool = getPool();
+  private _pool: ReturnType<typeof getPool> | null = null;
+
+  private get pool() {
+    if (!this._pool) {
+      this._pool = getPool();
+    }
+    return this._pool;
+  }
 
   async createMemory(data: MemoryData): Promise<string> {
     const id = data.id || crypto.randomUUID();

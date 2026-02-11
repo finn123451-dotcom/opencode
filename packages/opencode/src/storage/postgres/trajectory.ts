@@ -293,7 +293,14 @@ export interface CompleteTrajectoryData {
 }
 
 export class TrajectoryStorage {
-  private pool = getPool();
+  private _pool: ReturnType<typeof getPool> | null = null;
+
+  private get pool() {
+    if (!this._pool) {
+      this._pool = getPool();
+    }
+    return this._pool;
+  }
 
   async createSession(data: SessionData): Promise<string> {
     const query = `
