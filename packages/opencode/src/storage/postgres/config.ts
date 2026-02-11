@@ -9,6 +9,7 @@ export const TrajectoryStorageConfigSchema = z.object({
   captureRate: z.number().min(0).max(1).default(1.0),
   batchSize: z.number().min(1).max(1000).default(100),
   flushInterval: z.number().min(100).max(60000).default(5000),
+  aiEnabled: z.boolean().default(undefined),
 });
 
 export type TrajectoryStorageConfig = z.infer<typeof TrajectoryStorageConfigSchema>;
@@ -22,6 +23,7 @@ export function configureTrajectoryStorage(userConfig: TrajectoryStorageConfig):
 
 export function getTrajectoryStorageConfig(): TrajectoryStorageConfig {
   if (!config) {
+    const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
     config = {
       enabled: true,
       postgres: {
@@ -34,14 +36,23 @@ export function getTrajectoryStorageConfig(): TrajectoryStorageConfig {
         idleTimeoutMs: parseInt(process.env.PGIDLETIMEOUT || '30000'),
         connectionTimeoutMs: parseInt(process.env.PGCONNECTIONTIMEOUT || '5000'),
       },
-      storeEmbeddings: true,
-      generateKnowledge: true,
+      storeEmbeddings: hasOpenAIKey,
+      generateKnowledge: hasOpenAIKey,
       captureRate: 1.0,
       batchSize: 100,
       flushInterval: 5000,
+      aiEnabled: hasOpenAIKey,
     };
   }
   return config;
+}
+
+export function isAIEnabled(): boolean {
+  const storageConfig = getTrajectoryStorageConfig();
+  if (storageConfig.aiEnabled !== undefined) {
+    return storageConfig.aiEnabled;
+  }
+  return !!process.env.OPENAI_API_KEY;
 }
 
 export async function initializeStorage(): Promise<void> {

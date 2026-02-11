@@ -1,12 +1,20 @@
 import { getPool } from './connection';
 import { generateEmbedding, storeEmbedding, searchSimilarEmbeddings } from './embedding';
 import { CompleteTrajectoryData, trajectoryStorage } from './trajectory';
+import { isAIEnabled } from './config';
 import crypto from 'crypto';
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let _openai: OpenAI | null = null;
+
+function getOpenAI(): OpenAI {
+  if (!_openai) {
+    _openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+  return _openai;
+}
 
 export interface KnowledgeEntry {
   id?: string;
@@ -76,16 +84,18 @@ export class KnowledgeBase {
       JSON.stringify(data.metadata || {}),
     ]);
 
-    try {
-      const embedding = await generateEmbedding(`${data.title} ${data.content}`);
-      const embeddingId = await storeEmbedding('knowledge', id, `${data.title} ${data.content}`, embedding);
-      
-      await this.pool.query(
-        'UPDATE knowledge_base SET embedding_id = $1 WHERE id = $2',
-        [embeddingId, id]
-      );
-    } catch (error) {
-      console.error('Failed to create embedding for knowledge entry:', error);
+    if (isAIEnabled()) {
+      try {
+        const embedding = await generateEmbedding(`${data.title} ${data.content}`);
+        const embeddingId = await storeEmbedding('knowledge', id, `${data.title} ${data.content}`, embedding);
+        
+        await this.pool.query(
+          'UPDATE knowledge_base SET embedding_id = $1 WHERE id = $2',
+          [embeddingId, id]
+        );
+      } catch (error) {
+        console.error('Failed to create embedding for knowledge entry:', error);
+      }
     }
 
     return id;
@@ -107,6 +117,11 @@ export class KnowledgeBase {
       minConfidence?: number;
     } = {}
   ): Promise<any[]> {
+    if (!isAIEnabled()) {
+      console.warn('AI features are disabled. Search will return empty results.');
+      return [];
+    }
+    
     const queryEmbedding = await generateEmbedding(query);
     
     let baseQuery = `
@@ -163,6 +178,11 @@ export class KnowledgeBase {
   }
 
   async generateKnowledgeFromTrajectory(trajectory: CompleteTrajectoryData): Promise<string[]> {
+    if (!isAIEnabled()) {
+      console.log('AI features are disabled. Skipping knowledge generation.');
+      return [];
+    }
+
     const knowledgeIds: string[] = [];
 
     try {
@@ -252,7 +272,7 @@ ${toolCalls}
 4. 最终结果和输出`;
 
     try {
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAI().chat.completions.create({
         model: 'gpt-4-turbo',
         messages: [
           {
@@ -280,7 +300,7 @@ ${toolCalls}
         .map(tc => `${tc.tool_name}`)
         .join(', ');
 
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAI().chat.completions.create({
         model: 'gpt-4-turbo',
         messages: [
           {
@@ -332,7 +352,7 @@ ${trajectory.messages.map(m => `${m.role}: ${m.content}`).join('\n')}
     const solutions: KnowledgeEntry[] = [];
 
     try {
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAI().chat.completions.create({
         model: 'gpt-4-turbo',
         messages: [
           {
@@ -399,7 +419,7 @@ ${trajectory.steps.map(s => `类型: ${s.stepType}\n内容: ${s.content}\n结果
         return errorFixes;
       }
 
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAI().chat.completions.create({
         model: 'gpt-4-turbo',
         messages: [
           {

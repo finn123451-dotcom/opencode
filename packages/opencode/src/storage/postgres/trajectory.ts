@@ -1,5 +1,6 @@
 import { getPool, transaction } from './connection';
 import { generateEmbedding, storeEmbedding, searchSimilarEmbeddings } from './embedding';
+import { isAIEnabled } from './config';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -874,6 +875,11 @@ export class TrajectoryStorage {
   async storeTrajectoryWithEmbeddings(data: CompleteTrajectoryData): Promise<string> {
     const trajectoryId = await this.storeCompleteTrajectory(data);
 
+    if (!isAIEnabled()) {
+      console.log('AI features are disabled. Skipping embedding storage.');
+      return trajectoryId;
+    }
+
     try {
       for (const message of data.messages) {
         if (message.content && message.content.length > 10) {
@@ -922,6 +928,11 @@ export class TrajectoryStorage {
     query: string,
     options: { limit?: number; entityType?: string } = {}
   ): Promise<Array<{ id: string; entity_type: string; entity_id: string; content: string; similarity: number }>> {
+    if (!isAIEnabled()) {
+      console.warn('AI features are disabled. Search will return empty results.');
+      return [];
+    }
+    
     const queryEmbedding = await generateEmbedding(query);
     return searchSimilarEmbeddings(
       queryEmbedding,

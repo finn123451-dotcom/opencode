@@ -1,5 +1,5 @@
 import { trajectoryCapture, TrajectoryCaptureConfig } from './capture';
-import { configureTrajectoryStorage, getTrajectoryStorageConfig, initializeStorage } from './config';
+import { configureTrajectoryStorage, getTrajectoryStorageConfig, initializeStorage, isAIEnabled } from './config';
 import { trajectoryStorage } from './trajectory';
 import { knowledgeBase, memoryManager } from './knowledge';
 
@@ -124,7 +124,7 @@ export class OpenCodeIntegration {
     await this.ensureInitialized();
     const trajectoryId = await trajectoryCapture.storeCompleteTrajectory(title, description);
     
-    if (this.config.generateKnowledgeOnComplete) {
+    if (this.config.generateKnowledgeOnComplete && isAIEnabled()) {
       const trajectory = await trajectoryStorage.getTrajectoryWithDetails(trajectoryId);
       if (trajectory) {
         await knowledgeBase.generateKnowledgeFromTrajectory(trajectory);

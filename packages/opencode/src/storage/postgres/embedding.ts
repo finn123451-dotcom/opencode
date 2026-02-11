@@ -1,4 +1,5 @@
 import { getPool } from './connection';
+import { isAIEnabled } from './config';
 import crypto from 'crypto';
 
 export interface EmbeddingOptions {
@@ -15,6 +16,10 @@ export async function generateEmbedding(
   content: string,
   options: EmbeddingOptions = {}
 ): Promise<number[]> {
+  if (!isAIEnabled()) {
+    throw new Error('AI features are disabled. Set OPENAI_API_KEY or enable aiEnabled in config.');
+  }
+
   const model = options.model || 'text-embedding-3-small';
   const dimensions = options.dimensions || 1536;
 
