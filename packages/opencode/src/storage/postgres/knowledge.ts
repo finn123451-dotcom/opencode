@@ -33,7 +33,7 @@ export interface MemoryData {
   id?: string;
   type: 'user_preference' | 'project_context' | 'session_context' | 'global';
   scope: string;
-  key: string;
+  memKey: string;
   value: Record<string, any>;
   confidence?: number;
   sourceTrajectoryId?: string;
@@ -501,9 +501,9 @@ export class MemoryManager {
     const id = data.id || crypto.randomUUID();
 
     const query = `
-      INSERT INTO memories (id, type, scope, key, value, confidence, source_trajectory_id, metadata)
+      INSERT INTO memories (id, type, scope, mem_key, value, confidence, source_trajectory_id, metadata)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      ON CONFLICT (type, scope, key) DO UPDATE SET
+      ON CONFLICT (type, scope, mem_key) DO UPDATE SET
         value = $5,
         confidence = COALESCE($6, memories.confidence),
         source_trajectory_id = COALESCE($7, memories.source_trajectory_id),
@@ -516,7 +516,7 @@ export class MemoryManager {
       id,
       data.type,
       data.scope,
-      data.key,
+      data.memKey,
       JSON.stringify(data.value),
       data.confidence || 1.0,
       data.sourceTrajectoryId || null,
@@ -526,10 +526,10 @@ export class MemoryManager {
     return id;
   }
 
-  async getMemory(type: string, scope: string, key: string): Promise<any> {
+  async getMemory(type: string, scope: string, memKey: string): Promise<any> {
     const result = await this.pool.query(
-      'SELECT * FROM memories WHERE type = $1 AND scope = $2 AND key = $3',
-      [type, scope, key]
+      'SELECT * FROM memories WHERE type = $1 AND scope = $2 AND mem_key = $3',
+      [type, scope, memKey]
     );
     return result.rows[0] || null;
   }
@@ -550,17 +550,17 @@ export class MemoryManager {
     return result.rows;
   }
 
-  async deleteMemory(type: string, scope: string, key: string): Promise<void> {
+  async deleteMemory(type: string, scope: string, memKey: string): Promise<void> {
     await this.pool.query(
-      'DELETE FROM memories WHERE type = $1 AND scope = $2 AND key = $3',
-      [type, scope, key]
+      'DELETE FROM memories WHERE type = $1 AND scope = $2 AND mem_key = $3',
+      [type, scope, memKey]
     );
   }
 
-  async updateMemoryConfidence(type: string, scope: string, key: string, confidence: number): Promise<void> {
+  async updateMemoryConfidence(type: string, scope: string, memKey: string, confidence: number): Promise<void> {
     await this.pool.query(
-      'UPDATE memories SET confidence = $1, updated_at = NOW() WHERE type = $2 AND scope = $3 AND key = $4',
-      [confidence, type, scope, key]
+      'UPDATE memories SET confidence = $1, updated_at = NOW() WHERE type = $2 AND scope = $3 AND mem_key = $4',
+      [confidence, type, scope, memKey]
     );
   }
 
@@ -573,7 +573,7 @@ export class MemoryManager {
         await this.createMemory({
           type: 'session_context',
           scope: trajectory.session.id,
-          key: 'user_goals',
+          memKey: 'user_goals',
           value: {
             goals: userMessages.map(m => m.content),
           },
@@ -586,7 +586,7 @@ export class MemoryManager {
           await this.createMemory({
             type: 'session_context',
             scope: trajectory.session.id,
-            key: `tool_result_${toolCall.tool_name}`,
+            memKey: `tool_result_${toolCall.tool_name}`,
             value: {
               toolName: toolCall.tool_name,
               input: toolCall.input,
@@ -600,7 +600,7 @@ export class MemoryManager {
       await this.createMemory({
         type: 'session_context',
         scope: trajectory.session.id,
-        key: 'session_summary',
+        memKey: 'session_summary',
         value: {
           messageCount: trajectory.messages.length,
           toolCallCount: trajectory.toolCalls.length,
@@ -615,7 +615,7 @@ export class MemoryManager {
         await this.createMemory({
           type: 'project_context',
           scope: trajectory.session.projectId,
-          key: 'project_activity',
+          memKey: 'project_activity',
           value: {
             lastSessionId: trajectory.session.id,
             lastActivity: new Date().toISOString(),

@@ -1,3 +1,5 @@
+process.env.SOLID_JS_CONCURRENT='false';
+process.env.SOLID_JS_STREAMING='false';
 import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
 import { RunCommand } from "./cli/cmd/run"
