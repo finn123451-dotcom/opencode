@@ -1,8 +1,11 @@
 import { Database } from 'better-sqlite3';
 import pg from 'pg';
 import { z } from 'zod';
+import { Log } from "../../util/log";
 
 const { Pool } = pg;
+
+const logger = Log.create({ service: "postgres" })
 
 export interface PostgresConfig {
   host: string;
@@ -47,16 +50,16 @@ export async function initializePostgres(config: PostgresConfig): Promise<pg.Poo
   });
 
   pool.on('error', (err) => {
-    console.error('PostgreSQL pool error:', err);
+    logger.error("pool error", { error: err });
   });
 
   try {
     const client = await pool.connect();
     await client.query('SELECT 1');
     client.release();
-    console.log('PostgreSQL connection established');
+    logger.info("connection established");
   } catch (error) {
-    console.error('Failed to connect to PostgreSQL:', error);
+    logger.error("failed to connect", { error });
     throw error;
   }
 
@@ -74,7 +77,7 @@ export async function closePostgres(): Promise<void> {
   if (pool) {
     await pool.end();
     pool = null;
-    console.log('PostgreSQL pool closed');
+    logger.info("pool closed");
   }
 }
 

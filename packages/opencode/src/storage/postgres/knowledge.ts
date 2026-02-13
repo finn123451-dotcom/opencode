@@ -4,6 +4,9 @@ import { CompleteTrajectoryData, trajectoryStorage } from './trajectory';
 import { isAIEnabled } from './config';
 import crypto from 'crypto';
 import OpenAI from 'openai';
+import { Log } from "../../util/log";
+
+const logger = Log.create({ service: "knowledge-base" })
 
 let _openai: OpenAI | null = null;
 
@@ -52,7 +55,31 @@ export class KnowledgeBase {
 
   async createKnowledge(data: KnowledgeEntry): Promise<string> {
     const id = data.id || crypto.randomUUID();
-    
+
+    // Check if trajectory and session exist, if not set to NULL
+    let trajectoryId = data.trajectoryId;
+    let sessionId = data.sessionId;
+
+    if (trajectoryId) {
+      const checkResult = await this.pool.query(
+        'SELECT id FROM trajectories WHERE id = $1',
+        [trajectoryId]
+      );
+      if (checkResult.rows.length === 0) {
+        trajectoryId = null;
+      }
+    }
+
+    if (sessionId) {
+      const checkResult = await this.pool.query(
+        'SELECT id FROM sessions WHERE id = $1',
+        [sessionId]
+      );
+      if (checkResult.rows.length === 0) {
+        sessionId = null;
+      }
+    }
+
     const query = `
       INSERT INTO knowledge_base (
         id, trajectory_id, session_id, title, content, category,
@@ -60,6 +87,8 @@ export class KnowledgeBase {
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (id) DO UPDATE SET
+        trajectory_id = COALESCE($2, knowledge_base.trajectory_id),
+        session_id = COALESCE($3, knowledge_base.session_id),
         title = COALESCE($4, knowledge_base.title),
         content = COALESCE($5, knowledge_base.content),
         category = COALESCE($6, knowledge_base.category),
@@ -73,8 +102,8 @@ export class KnowledgeBase {
 
     await this.pool.query(query, [
       id,
-      data.trajectoryId || null,
-      data.sessionId || null,
+      trajectoryId,
+      sessionId,
       data.title,
       data.content,
       data.category || 'general',
@@ -88,13 +117,13 @@ export class KnowledgeBase {
       try {
         const embedding = await generateEmbedding(`${data.title} ${data.content}`);
         const embeddingId = await storeEmbedding('knowledge', id, `${data.title} ${data.content}`, embedding);
-        
+
         await this.pool.query(
           'UPDATE knowledge_base SET embedding_id = $1 WHERE id = $2',
           [embeddingId, id]
         );
       } catch (error) {
-        console.error('Failed to create embedding for knowledge entry:', error);
+        logger.error("failed to create embedding for knowledge entry", { error });
       }
     }
 
@@ -118,7 +147,7 @@ export class KnowledgeBase {
     } = {}
   ): Promise<any[]> {
     if (!isAIEnabled()) {
-      console.warn('AI features are disabled. Search will return empty results.');
+      logger.warn("AI features are disabled, search will return empty results");
       return [];
     }
     
@@ -179,7 +208,7 @@ export class KnowledgeBase {
 
   async generateKnowledgeFromTrajectory(trajectory: CompleteTrajectoryData): Promise<string[]> {
     if (!isAIEnabled()) {
-      console.log('AI features are disabled. Skipping knowledge generation.');
+      logger.debug("AI features are disabled, skipping knowledge generation");
       return [];
     }
 
@@ -235,7 +264,7 @@ export class KnowledgeBase {
         knowledgeIds.push(errorFixKnowledge);
       }
     } catch (error) {
-      console.error('Failed to generate knowledge from trajectory:', error);
+      logger.error("failed to generate knowledge from trajectory", { error });
     }
 
     return knowledgeIds;
@@ -287,7 +316,7 @@ ${toolCalls}
 
       return response.choices[0]?.message?.content || '无法生成总结';
     } catch (error) {
-      console.error('Failed to generate trajectory summary:', error);
+      logger.error("failed to generate trajectory summary", { error });
       return '总结生成失败';
     }
   }
@@ -342,7 +371,7 @@ ${trajectory.messages.map(m => `${m.role}: ${m.content}`).join('\n')}
         });
       }
     } catch (error) {
-      console.error('Failed to extract patterns:', error);
+      logger.error("failed to extract patterns", { error });
     }
 
     return patterns;
@@ -399,7 +428,7 @@ ${trajectory.steps.map(s => `类型: ${s.stepType}\n内容: ${s.content}\n结果
         });
       }
     } catch (error) {
-      console.error('Failed to extract solutions:', error);
+      logger.error("failed to extract solutions", { error });
     }
 
     return solutions;
@@ -463,7 +492,7 @@ ${trajectory.toolCalls.map(tc => `工具: ${tc.tool_name}\n状态: ${tc.status}\
         });
       }
     } catch (error) {
-      console.error('Failed to extract error fixes:', error);
+      logger.error("failed to extract error fixes", { error });
     }
 
     return errorFixes;
@@ -500,6 +529,18 @@ export class MemoryManager {
   async createMemory(data: MemoryData): Promise<string> {
     const id = data.id || crypto.randomUUID();
 
+    // Check if trajectory exists, if not set to NULL
+    let sourceTrajectoryId = data.sourceTrajectoryId;
+    if (sourceTrajectoryId) {
+      const checkResult = await this.pool.query(
+        'SELECT id FROM trajectories WHERE id = $1',
+        [sourceTrajectoryId]
+      );
+      if (checkResult.rows.length === 0) {
+        sourceTrajectoryId = null;
+      }
+    }
+
     const query = `
       INSERT INTO memories (id, type, scope, mem_key, value, confidence, source_trajectory_id, metadata)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -519,7 +560,7 @@ export class MemoryManager {
       data.memKey,
       JSON.stringify(data.value),
       data.confidence || 1.0,
-      data.sourceTrajectoryId || null,
+      sourceTrajectoryId,
       JSON.stringify(data.metadata || {}),
     ]);
 
@@ -625,7 +666,7 @@ export class MemoryManager {
         });
       }
     } catch (error) {
-      console.error('Failed to extract and store memories:', error);
+      logger.error("failed to extract and store memories", { error });
     }
   }
 }

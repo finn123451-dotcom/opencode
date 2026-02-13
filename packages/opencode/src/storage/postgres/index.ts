@@ -5,3 +5,4 @@ export * from './knowledge';
 export * from './capture';
 export * from './config';
 export * from './integration';
+export { isStorageEnabled } from './config';

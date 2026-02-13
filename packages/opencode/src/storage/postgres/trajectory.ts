@@ -3,6 +3,9 @@ import { generateEmbedding, storeEmbedding, searchSimilarEmbeddings } from './em
 import { isAIEnabled } from './config';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
+import { Log } from "../../util/log";
+
+const logger = Log.create({ service: "trajectory-storage" })
 
 export interface SessionData {
   id: string;
@@ -280,6 +283,7 @@ export interface CompleteTrajectoryData {
   session: SessionData;
   messages: MessageData[];
   parts: MessagePartData[];
+  textParts?: any[];
   reasoningChains: ReasoningChainData[];
   toolCalls: ToolCallData[];
   attachments: ToolAttachmentData[];
@@ -346,6 +350,18 @@ export class TrajectoryStorage {
   }
 
   async createMessage(data: MessageData): Promise<string> {
+    // Check if session exists, if not set session_id to NULL
+    let sessionId = data.sessionId;
+    if (sessionId) {
+      const checkResult = await this.pool.query(
+        'SELECT id FROM sessions WHERE id = $1',
+        [sessionId]
+      );
+      if (checkResult.rows.length === 0) {
+        sessionId = null;
+      }
+    }
+
     const query = `
       INSERT INTO messages (
         id, session_id, parent_id, role, content,
@@ -360,6 +376,7 @@ export class TrajectoryStorage {
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
       ON CONFLICT (id) DO UPDATE SET
+        session_id = COALESCE($2, messages.session_id),
         parent_id = COALESCE($3, messages.parent_id),
         content = $5,
         model = COALESCE($6, messages.model),
@@ -379,17 +396,18 @@ export class TrajectoryStorage {
         path_root = COALESCE($20, messages.path_root),
         summary_title = COALESCE($21, messages.summary_title),
         summary_body = COALESCE($22, messages.summary_body),
-        time_completed = COALESCE($23, messages.time_completed),
-        step_order = COALESCE($24, messages.step_order),
-        is_summary = COALESCE($25, messages.is_summary),
-        metadata = COALESCE($26, messages.metadata)::jsonb,
+        time_created = $23,
+        time_completed = COALESCE($24, messages.time_completed),
+        step_order = COALESCE($25, messages.step_order),
+        is_summary = COALESCE($26, messages.is_summary),
+        metadata = COALESCE($27, messages.metadata)::jsonb,
         updated_at = NOW()
       RETURNING id
     `;
 
     const result = await this.pool.query(query, [
       data.id,
-      data.sessionId,
+      sessionId,
       data.parentId || null,
       data.role,
       data.content,
@@ -413,7 +431,7 @@ export class TrajectoryStorage {
       data.timeCreated,
       data.timeCompleted || null,
       data.stepOrder || null,
-      data.isSummary || false,
+      data.isSummary ?? false,
       JSON.stringify(data.metadata || {}),
     ]);
 
@@ -429,11 +447,24 @@ export class TrajectoryStorage {
   }
 
   async createReasoningChain(data: ReasoningChainData): Promise<string> {
+    // Check if message exists, if not set message_id to NULL
+    let messageId = data.messageId;
+    if (messageId) {
+      const checkResult = await this.pool.query(
+        'SELECT id FROM messages WHERE id = $1',
+        [messageId]
+      );
+      if (checkResult.rows.length === 0) {
+        messageId = null;
+      }
+    }
+
     const query = `
       INSERT INTO reasoning_chains (id, message_id, content, model, time_start, time_end, provider_metadata, part_order, metadata)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       ON CONFLICT (id) DO UPDATE SET
         content = $3,
+        message_id = COALESCE($2, reasoning_chains.message_id),
         model = COALESCE($4, reasoning_chains.model),
         time_start = COALESCE($5, reasoning_chains.time_start),
         time_end = COALESCE($6, reasoning_chains.time_end),
@@ -445,7 +476,7 @@ export class TrajectoryStorage {
 
     const result = await this.pool.query(query, [
       data.id,
-      data.messageId,
+      messageId,
       data.content,
       data.model || null,
       data.timeStart,
@@ -459,14 +490,27 @@ export class TrajectoryStorage {
   }
 
   async createToolCall(data: ToolCallData): Promise<string> {
+    // Check if message exists, if not set message_id to NULL
+    let messageId = data.messageId;
+    if (messageId) {
+      const checkResult = await this.pool.query(
+        'SELECT id FROM messages WHERE id = $1',
+        [messageId]
+      );
+      if (checkResult.rows.length === 0) {
+        messageId = null;
+      }
+    }
+
     const query = `
       INSERT INTO tool_calls (
         id, message_id, call_id, tool_name, input, output, raw_output, truncated,
         status, error_message, title, output_path,
         time_created, time_start, time_end, duration_ms, part_order, attachments, metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       ON CONFLICT (id) DO UPDATE SET
+        message_id = COALESCE($2, tool_calls.message_id),
         call_id = $3,
         tool_name = $4,
         input = $5,
@@ -477,6 +521,7 @@ export class TrajectoryStorage {
         error_message = COALESCE($10, tool_calls.error_message),
         title = COALESCE($11, tool_calls.title),
         output_path = COALESCE($12, tool_calls.output_path),
+        time_created = $13,
         time_start = COALESCE($14, tool_calls.time_start),
         time_end = COALESCE($15, tool_calls.time_end),
         duration_ms = COALESCE($16, tool_calls.duration_ms),
@@ -489,13 +534,13 @@ export class TrajectoryStorage {
 
     const result = await this.pool.query(query, [
       data.id,
-      data.messageId,
+      messageId,
       data.callId,
       data.toolName,
       JSON.stringify(data.input),
       data.output || null,
       data.rawOutput || null,
-      data.truncated || false,
+      data.truncated ?? false,
       data.status,
       data.errorMessage || null,
       data.title || null,
@@ -567,6 +612,29 @@ export class TrajectoryStorage {
   }
 
   async createStep(data: StepData): Promise<string> {
+    // Check if message and trajectory exist, if not set to NULL
+    let messageId = data.messageId;
+    if (messageId) {
+      const checkResult = await this.pool.query(
+        'SELECT id FROM messages WHERE id = $1',
+        [messageId]
+      );
+      if (checkResult.rows.length === 0) {
+        messageId = null;
+      }
+    }
+
+    let trajectoryId = data.trajectoryId;
+    if (trajectoryId) {
+      const checkResult = await this.pool.query(
+        'SELECT id FROM trajectories WHERE id = $1',
+        [trajectoryId]
+      );
+      if (checkResult.rows.length === 0) {
+        trajectoryId = null;
+      }
+    }
+
     const query = `
       INSERT INTO steps (
         id, trajectory_id, session_id, message_id, step_type, step_order,
@@ -576,8 +644,11 @@ export class TrajectoryStorage {
         time_start, time_end, duration_ms, step_group,
         metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
       ON CONFLICT (id) DO UPDATE SET
+        trajectory_id = COALESCE($2, steps.trajectory_id),
+        session_id = COALESCE($3, steps.session_id),
+        message_id = COALESCE($4, steps.message_id),
         step_type = $5,
         step_order = COALESCE($6, steps.step_order),
         content = COALESCE($7, steps.content),
@@ -602,9 +673,9 @@ export class TrajectoryStorage {
 
     const result = await this.pool.query(query, [
       data.id,
-      data.trajectoryId || null,
+      trajectoryId,
       data.sessionId,
-      data.messageId || null,
+      messageId,
       data.stepType,
       data.stepOrder,
       data.content || null,
@@ -630,6 +701,18 @@ export class TrajectoryStorage {
   }
 
   async createTrajectory(data: TrajectoryData): Promise<string> {
+    // Check if session exists, if not set session_id to NULL
+    let sessionId = data.sessionId;
+    if (sessionId) {
+      const checkResult = await this.pool.query(
+        'SELECT id FROM sessions WHERE id = $1',
+        [sessionId]
+      );
+      if (checkResult.rows.length === 0) {
+        sessionId = null;
+      }
+    }
+
     const query = `
       INSERT INTO trajectories (
         id, session_id, root_message_id, model, provider_id, agent, title, description,
@@ -640,8 +723,9 @@ export class TrajectoryStorage {
         time_created, time_completed, duration_ms, quality_score, efficiency_score,
         metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
       ON CONFLICT (id) DO UPDATE SET
+        session_id = COALESCE($2, trajectories.session_id),
         model = COALESCE($4, trajectories.model),
         provider_id = COALESCE($5, trajectories.provider_id),
         agent = COALESCE($6, trajectories.agent),
@@ -674,7 +758,7 @@ export class TrajectoryStorage {
 
     const result = await this.pool.query(query, [
       data.id,
-      data.sessionId,
+      sessionId,
       data.rootMessageId || null,
       data.model || null,
       data.providerId || null,
@@ -854,6 +938,18 @@ export class TrajectoryStorage {
   }
 
   async createMessagePart(data: MessagePartData): Promise<string> {
+    // Check if message exists, if not set message_id to NULL
+    let messageId = data.messageId;
+    if (messageId) {
+      const checkResult = await this.pool.query(
+        'SELECT id FROM messages WHERE id = $1',
+        [messageId]
+      );
+      if (checkResult.rows.length === 0) {
+        messageId = null;
+      }
+    }
+
     const query = `
       INSERT INTO message_parts (id, message_id, part_type, content, part_order, metadata)
       VALUES ($1, $2, $3, $4, $5, $6)
@@ -862,7 +958,7 @@ export class TrajectoryStorage {
 
     const result = await this.pool.query(query, [
       data.id,
-      data.messageId,
+      messageId,
       data.partType,
       data.content || null,
       data.partOrder,
@@ -876,7 +972,7 @@ export class TrajectoryStorage {
     const trajectoryId = await this.storeCompleteTrajectory(data);
 
     if (!isAIEnabled()) {
-      console.log('AI features are disabled. Skipping embedding storage.');
+      logger.debug("AI features are disabled, skipping embedding storage");
       return trajectoryId;
     }
 
@@ -918,7 +1014,7 @@ export class TrajectoryStorage {
         }
       }
     } catch (error) {
-      console.error('Failed to store embeddings for trajectory:', error);
+      logger.error("failed to store embeddings for trajectory", { error });
     }
 
     return trajectoryId;
@@ -929,7 +1025,7 @@ export class TrajectoryStorage {
     options: { limit?: number; entityType?: string } = {}
   ): Promise<Array<{ id: string; entity_type: string; entity_id: string; content: string; similarity: number }>> {
     if (!isAIEnabled()) {
-      console.warn('AI features are disabled. Search will return empty results.');
+      logger.warn("AI features are disabled, search will return empty results");
       return [];
     }
     

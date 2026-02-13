@@ -1080,6 +1080,10 @@ export namespace Config {
         .object({
           disable_paste_summary: z.boolean().optional(),
           batch_tool: z.boolean().optional().describe("Enable the batch tool"),
+          trajectoryStorage: z
+            .boolean()
+            .optional()
+            .describe("Enable trajectory storage to PostgreSQL"),
           openTelemetry: z
             .boolean()
             .optional()

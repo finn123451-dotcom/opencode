@@ -1,8 +1,11 @@
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { MessageV2 } from "./message-v2";
-import { opencodeIntegration } from "../storage/postgres";
+import { opencodeIntegration, isStorageEnabled } from "../storage/postgres";
 import { Config } from "@/config/config";
+import { Log } from "../util/log";
+
+const logger = Log.create({ service: "trajectory-tracker" })
 
 export interface TrajectoryEventMap {
   'session:start': { sessionId: string; messageId: string };
@@ -53,12 +56,23 @@ export class SessionTrajectoryTracker extends EventEmitter {
   async initialize(): Promise<void> {
     try {
       const cfg = await Config.get();
-      if (cfg.experimental?.openTelemetry) {
-        this.enabled = true;
+      const configEnabled = cfg.experimental?.trajectoryStorage ?? false;
+      const envEnabled = isStorageEnabled();
+      
+      if (cfg.experimental?.trajectoryStorage !== undefined) {
+        this.enabled = configEnabled;
+      } else {
+        this.enabled = envEnabled;
+      }
+      
+      if (this.enabled) {
         await opencodeIntegration.initialize();
+        logger.info("storage enabled and initialized");
+      } else {
+        logger.info("storage is disabled");
       }
     } catch (error) {
-      console.error('Failed to initialize trajectory tracker:', error);
+      logger.error("failed to initialize trajectory tracker", { error });
     }
   }
 
@@ -80,7 +94,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
         title: sessionInfo?.title,
       });
     } catch (error) {
-      console.error('Failed to start session in trajectory:', error);
+      logger.error("failed to start session in trajectory", { error });
     }
   }
 
@@ -96,7 +110,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
     try {
       return await opencodeIntegration.endSession(status);
     } catch (error) {
-      console.error('Failed to end session in trajectory:', error);
+      logger.error("failed to end session in trajectory", { error });
       return null;
     }
   }
@@ -105,11 +119,9 @@ export class SessionTrajectoryTracker extends EventEmitter {
     if (!this.enabled) return;
 
     try {
-      await opencodeIntegration.captureUserMessage(messageId, content, {
-        timestamp: new Date().toISOString(),
-      });
+      await opencodeIntegration.captureUserMessage(messageId, content);
     } catch (error) {
-      console.error('Failed to capture user message:', error);
+      logger.error("failed to capture user message", { error });
     }
   }
 
@@ -119,11 +131,9 @@ export class SessionTrajectoryTracker extends EventEmitter {
     this.currentMessageId = messageId;
 
     try {
-      await opencodeIntegration.captureAssistantMessage(messageId, content, {
-        timestamp: new Date().toISOString(),
-      });
+      await opencodeIntegration.captureAssistantMessage(messageId, content);
     } catch (error) {
-      console.error('Failed to capture assistant message:', error);
+      logger.error("failed to capture assistant message", { error });
     }
   }
 
@@ -138,7 +148,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
         model: metadata?.model,
       });
     } catch (error) {
-      console.error('Failed to capture reasoning start:', error);
+      logger.error("failed to capture reasoning start", { error });
     }
   }
 
@@ -161,7 +171,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
           content: reasoning.text,
         });
       } catch (error) {
-        console.error('Failed to capture reasoning end:', error);
+        logger.error("failed to capture reasoning end", { error });
       }
       this.activeReasoning.delete(reasoningId);
     }
@@ -176,9 +186,10 @@ export class SessionTrajectoryTracker extends EventEmitter {
       await opencodeIntegration.captureToolCallStart(messageId, {
         toolName,
         input,
+        toolCallId,
       });
     } catch (error) {
-      console.error('Failed to capture tool call start:', error);
+      logger.error("failed to capture tool call start", { error });
     }
   }
 
@@ -198,7 +209,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
           status,
         });
       } catch (error) {
-        console.error('Failed to capture tool call result:', error);
+        logger.error("failed to capture tool call result", { error });
       }
       this.activeToolCalls.delete(toolCallId);
     }
@@ -215,7 +226,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
           status: 'failed',
         });
       } catch (err) {
-        console.error('Failed to capture tool call error:', err);
+        logger.error("failed to capture tool call error", { error: err });
       }
       this.activeToolCalls.delete(toolCallId);
     }
@@ -247,9 +258,14 @@ export class SessionTrajectoryTracker extends EventEmitter {
 
     try {
       if (this.currentMessageId) {
+        await opencodeIntegration.captureStep(this.currentMessageId, {
+          stepType: stepData.reason === 'patch' ? 'text' : 'text_generation',
+          content: stepData.patch?.files ? JSON.stringify(stepData.patch.files) : undefined,
+          outputData: stepData,
+        });
       }
     } catch (error) {
-      console.error('Failed to capture step end:', error);
+      logger.error("failed to capture step end", { error });
     }
   }
 
@@ -262,7 +278,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
         stack,
       });
     } catch (err) {
-      console.error('Failed to capture error:', err);
+      logger.error("failed to capture error", { error: err });
     }
   }
 
@@ -272,7 +288,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
     try {
       return await opencodeIntegration.completeTrajectory(title, description);
     } catch (error) {
-      console.error('Failed to complete trajectory:', error);
+      logger.error("failed to complete trajectory", { error });
       return null;
     }
   }
@@ -283,7 +299,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
     try {
       return await opencodeIntegration.searchKnowledge(query, options);
     } catch (error) {
-      console.error('Failed to search knowledge:', error);
+      logger.error("failed to search knowledge", { error });
       return [];
     }
   }
@@ -294,7 +310,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
     try {
       return await opencodeIntegration.getRelevantMemories(scope);
     } catch (error) {
-      console.error('Failed to get memories:', error);
+      logger.error("failed to get memories", { error });
       return [];
     }
   }

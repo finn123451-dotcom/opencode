@@ -2,6 +2,9 @@ import { trajectoryCapture, TrajectoryCaptureConfig } from './capture';
 import { configureTrajectoryStorage, getTrajectoryStorageConfig, initializeStorage, isAIEnabled } from './config';
 import { trajectoryStorage } from './trajectory';
 import { knowledgeBase, memoryManager } from './knowledge';
+import { Log } from "../../util/log";
+
+const logger = Log.create({ service: "opencode-integration" })
 
 export interface OpenCodeIntegrationConfig {
   autoCapture: boolean;
@@ -40,7 +43,7 @@ export class OpenCodeIntegration {
     await trajectoryCapture.initialize();
     
     this.initialized = true;
-    console.log('OpenCode integration initialized');
+    logger.info("initialized");
   }
 
   async startSession(sessionInfo: {
@@ -92,6 +95,7 @@ export class OpenCodeIntegration {
   async captureToolCallStart(messageId: string, toolCall: {
     toolName: string;
     input: Record<string, any>;
+    toolCallId?: string;
   }): Promise<string> {
     await this.ensureInitialized();
     if (this.config.captureToolCalls) {
@@ -118,6 +122,21 @@ export class OpenCodeIntegration {
     if (this.config.captureErrors) {
       await trajectoryCapture.captureError(messageId, error);
     }
+  }
+
+  async captureStep(messageId: string, step: {
+    stepType: 'reasoning' | 'tool_call' | 'tool_result' | 'text' | 'error' | 'subtask' | 'compaction' | 'text_generation';
+    content?: string;
+    inputData?: Record<string, any>;
+    outputData?: Record<string, any>;
+    reason?: string;
+    durationMs?: number;
+  }): Promise<string> {
+    await this.ensureInitialized();
+    if (this.config.captureSteps) {
+      return await trajectoryCapture.captureStep(messageId, step);
+    }
+    return '';
   }
 
   async completeTrajectory(title?: string, description?: string): Promise<string> {

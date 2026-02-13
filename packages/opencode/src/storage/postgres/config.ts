@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { PostgresConfigSchema, initializePostgres, closePostgres, getPool } from './connection';
+import { Log } from "../../util/log";
+
+const logger = Log.create({ service: "trajectory-storage" })
 
 export const TrajectoryStorageConfigSchema = z.object({
   enabled: z.boolean().default(true),
@@ -59,13 +62,13 @@ export async function initializeStorage(): Promise<void> {
   const storageConfig = getTrajectoryStorageConfig();
   
   if (!storageConfig.enabled) {
-    console.log('Trajectory storage is disabled');
+    logger.info("storage is disabled");
     return;
   }
 
   await initializePostgres(storageConfig.postgres);
   
-  console.log('Trajectory storage initialized with config:', {
+  logger.info("initialized", {
     host: storageConfig.postgres.host,
     database: storageConfig.postgres.database,
     storeEmbeddings: storageConfig.storeEmbeddings,
@@ -75,7 +78,7 @@ export async function initializeStorage(): Promise<void> {
 
 export async function shutdownStorage(): Promise<void> {
   await closePostgres();
-  console.log('Trajectory storage shut down');
+  logger.info("shutdown");
 }
 
 export async function healthCheck(): Promise<{
@@ -93,7 +96,7 @@ export async function healthCheck(): Promise<{
       embeddings: true,
     };
   } catch (error) {
-    console.error('Health check failed:', error);
+    logger.error("health check failed", { error });
     return {
       storage: false,
       database: false,

@@ -2,6 +2,9 @@ import { EventEmitter } from 'events';
 import { trajectoryStorage, CompleteTrajectoryData, SessionData, MessageData, StepData, ToolCallData, TrajectoryData, MessagePartData, ReasoningChainData, ToolAttachmentData, FileOperationData, SnapshotData, PatchData, SubtaskData, SessionCompactionData, RetryData } from './trajectory';
 import { knowledgeBase, memoryManager } from './knowledge';
 import { v4 as uuidv4 } from 'uuid';
+import { Log } from "../../util/log";
+
+const logger = Log.create({ service: "trajectory-capture" })
 
 export interface TrajectoryCaptureConfig {
   enabled: boolean;
@@ -31,7 +34,6 @@ export class TrajectoryCapture extends EventEmitter {
   private sessionBuffer: Partial<SessionData> | null = null;
   private messageBuffer: MessageData[] = [];
   private partBuffer: MessagePartData[] = [];
-  private textPartBuffer: any[] = [];
   private reasoningBuffer: ReasoningChainData[] = [];
   private toolCallBuffer: ToolCallData[] = [];
   private attachmentBuffer: ToolAttachmentData[] = [];
@@ -58,10 +60,10 @@ export class TrajectoryCapture extends EventEmitter {
 
   async initialize(): Promise<void> {
     if (!this.config.enabled) {
-      console.log('Trajectory capture is disabled');
+      logger.info("capture is disabled");
       return;
     }
-    console.log('Trajectory capture initialized');
+    logger.info("initialized");
   }
 
   async startSession(sessionInfo: {
@@ -114,7 +116,7 @@ export class TrajectoryCapture extends EventEmitter {
           await memoryManager.extractAndStoreMemories(trajectory as any);
         }
       } catch (error) {
-        console.error('Failed to generate knowledge from completed trajectory:', error);
+        logger.error("failed to generate knowledge from completed trajectory", { error });
       }
     }
 
@@ -138,7 +140,6 @@ export class TrajectoryCapture extends EventEmitter {
     this.sessionBuffer = null;
     this.messageBuffer = [];
     this.partBuffer = [];
-    this.textPartBuffer = [];
     this.reasoningBuffer = [];
     this.toolCallBuffer = [];
     this.attachmentBuffer = [];
@@ -283,6 +284,25 @@ export class TrajectoryCapture extends EventEmitter {
     });
   }
 
+  async captureReasoning(messageId: string, reasoning: {
+    reasoningId?: string;
+    content: string;
+    model?: string;
+  }): Promise<string | void> {
+    if (!this.config.enabled || !this.currentSessionId) return;
+
+    // Use provided reasoningId or generate a new one
+    const actualReasoningId = reasoning.reasoningId || uuidv4();
+    await this.captureReasoningStart(messageId, actualReasoningId, { model: reasoning.model });
+
+    if (reasoning.content) {
+      await this.captureReasoningDelta(actualReasoningId, reasoning.content);
+      await this.captureReasoningEnd(actualReasoningId, reasoning.content);
+    }
+
+    return actualReasoningId;
+  }
+
   async captureToolCallStart(messageId: string, toolCallId: string, callId: string, toolName: string, input: Record<string, any>, metadata?: {
     title?: string;
   }): Promise<string> {
@@ -343,8 +363,8 @@ export class TrajectoryCapture extends EventEmitter {
       toolCall.title = result.title || toolCall.title;
       toolCall.truncated = result.truncated;
       toolCall.outputPath = result.outputPath;
-      toolCall.durationMs = result.durationMs || (toolCall.timeStart ? Date.now() - toolCall.timeStart : undefined);
-      toolCall.timeEnd = new Date();
+       toolCall.durationMs = result.durationMs || (toolCall.timeStart ? Date.now() - toolCall.timeStart : undefined);
+       toolCall.timeEnd = Date.now();
 
       await trajectoryStorage.updateToolCall(toolCallId, {
         output: result.output,
@@ -463,7 +483,6 @@ export class TrajectoryCapture extends EventEmitter {
       session: this.sessionBuffer as SessionData,
       messages: [...this.messageBuffer],
       parts: [...this.partBuffer],
-      textParts: [...this.textPartBuffer],
       reasoningChains: [...this.reasoningBuffer],
       toolCalls: [...this.toolCallBuffer],
       attachments: [...this.attachmentBuffer],
@@ -551,6 +570,38 @@ export class TrajectoryCapture extends EventEmitter {
   async enable(): Promise<void> {
     this.config.enabled = true;
     await this.initialize();
+  }
+
+  // Alias methods for integration compatibility
+  async startToolCall(messageId: string, toolCall: {
+    toolName: string;
+    input: Record<string, any>;
+    toolCallId?: string;
+  }): Promise<string> {
+    // Use the provided toolCallId or generate a new one
+    const actualToolCallId = toolCall.toolCallId || uuidv4();
+    await this.captureToolCallStart(messageId, actualToolCallId, uuidv4(), toolCall.toolName, toolCall.input);
+    return actualToolCallId;
+  }
+
+  async completeToolCall(toolCallId: string, result: {
+    output: string;
+    status?: 'completed' | 'failed';
+  }): Promise<void> {
+    await this.captureToolCallComplete(toolCallId, result);
+  }
+
+  async captureMessage(message: {
+    id: string;
+    role: string;
+    content: string;
+    metadata?: Record<string, any>;
+  }): Promise<void> {
+    if (message.role === 'user') {
+      await this.captureUserMessage(message.id, message.content, message.metadata);
+    } else if (message.role === 'assistant') {
+      await this.captureAssistantMessage(message.id, message.content, message.metadata);
+    }
   }
 }
 

@@ -3,6 +3,9 @@ import {
   opencodeIntegration,
   shutdownOpenCodeIntegration,
 } from '../storage/postgres';
+import { Log } from "../../util/log";
+
+const logger = Log.create({ service: "trajectory-examples" })
 
 async function exampleUsage() {
   await initializeOpenCodeIntegration({
@@ -54,14 +57,14 @@ async function exampleUsage() {
     '完成用户认证模块的初始实现'
   );
 
-  console.log(`Trajectory stored: ${trajectoryId}`);
+  logger.info("trajectory stored", { trajectoryId });
 
   const knowledge = await opencodeIntegration.searchKnowledge('认证模块', {
     category: 'solution',
     limit: 5,
   });
 
-  console.log('Relevant knowledge:', knowledge);
+  logger.info("relevant knowledge found", { count: knowledge.length });
 
   await shutdownOpenCodeIntegration();
 }
@@ -70,19 +73,19 @@ async function advancedExample() {
   await initializeOpenCodeIntegration();
 
   const sessionHistory = await opencodeIntegration.getSessionHistory('session-123');
-  console.log('Session history:', sessionHistory);
+  logger.info("session history", { sessionId: 'session-123' });
 
   const similarContent = await opencodeIntegration.getSimilarContent('如何实现用户登录', {
     limit: 10,
     entityType: 'message',
   });
-  console.log('Similar content:', similarContent);
+  logger.info("similar content found", { count: similarContent.length });
 
   const popularKnowledge = await opencodeIntegration.getPopularKnowledge(20);
-  console.log('Popular knowledge:', popularKnowledge);
+  logger.info("popular knowledge", { count: popularKnowledge.length });
 
   const memories = await opencodeIntegration.getRelevantMemories('session-123');
-  console.log('Relevant memories:', memories);
+  logger.info("relevant memories", { count: memories.length });
 }
 
 export { exampleUsage, advancedExample };
