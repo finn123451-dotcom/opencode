@@ -35,6 +35,7 @@ export namespace SessionProcessor {
     let blocked = false
     let attempt = 0
     let needsCompaction = false
+    let currentStepId: string | undefined
 
     const result = {
       get message() {
@@ -171,7 +172,8 @@ export namespace SessionProcessor {
                         input.assistantMessage.id,
                         value.toolCallId,
                         value.toolName,
-                        value.input
+                        value.input,
+                        value.toolCallId
                       )
                     }
 
@@ -290,6 +292,12 @@ export namespace SessionProcessor {
                     snapshot,
                     type: "step-start",
                   })
+                  if (sessionTrajectoryTracker.isEnabled()) {
+                    currentStepId = await sessionTrajectoryTracker.captureStepStart(
+                      input.assistantMessage.id,
+                      value.stepId
+                    )
+                  }
                   break
 
                 case "finish-step":
@@ -312,6 +320,38 @@ export namespace SessionProcessor {
                     cost: usage.cost,
                   })
                   await Session.updateMessage(input.assistantMessage)
+                  // Capture assistant message with complete metadata
+                  if (sessionTrajectoryTracker.isEnabled()) {
+                    await sessionTrajectoryTracker.captureAssistantMessage(
+                      input.assistantMessage.id,
+                      input.assistantMessage.parts
+                        .filter(p => p.type === "text")
+                        .map(p => (p as any).text)
+                        .join("\n"),
+                      {
+                        model: input.model.id,
+                        providerId: input.model.provider,
+                        finishReason: value.finishReason,
+                        cost: usage.cost,
+                        tokensInput: usage.tokens.input,
+                        tokensOutput: usage.tokens.output,
+                        tokensReasoning: usage.tokens.reasoning,
+                      }
+                    )
+                  }
+                  if (sessionTrajectoryTracker.isEnabled() && currentStepId) {
+                    await sessionTrajectoryTracker.handleStepEnd(
+                      input.assistantMessage.id,
+                      currentStepId,
+                      {
+                        reason: value.finishReason,
+                        tokensInput: usage.tokens.input,
+                        tokensOutput: usage.tokens.output,
+                        cost: usage.cost,
+                      }
+                    )
+                    currentStepId = undefined
+                  }
                   if (snapshot) {
                     const patch = await Snapshot.patch(snapshot)
                     if (patch.files.length) {

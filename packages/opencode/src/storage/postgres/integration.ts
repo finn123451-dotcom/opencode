@@ -83,23 +83,33 @@ export class OpenCodeIntegration {
   }
 
   async captureReasoning(messageId: string, reasoning: {
+    reasoningId?: string;
     content: string;
     model?: string;
+    providerMetadata?: Record<string, any>;
   }): Promise<void> {
     await this.ensureInitialized();
     if (this.config.captureReasoning) {
       await trajectoryCapture.captureReasoning(messageId, reasoning);
     }
   }
+  }
 
   async captureToolCallStart(messageId: string, toolCall: {
     toolName: string;
     input: Record<string, any>;
     toolCallId?: string;
+    callId?: string;
   }): Promise<string> {
     await this.ensureInitialized();
     if (this.config.captureToolCalls) {
-      return await trajectoryCapture.startToolCall(messageId, toolCall);
+      return await trajectoryCapture.captureToolCallStart(
+        messageId,
+        toolCall.toolCallId || uuidv4(),
+        toolCall.callId || uuidv4(),
+        toolCall.toolName,
+        toolCall.input
+      );
     }
     return '';
   }
@@ -125,12 +135,17 @@ export class OpenCodeIntegration {
   }
 
   async captureStep(messageId: string, step: {
+    stepId?: string;
     stepType: 'reasoning' | 'tool_call' | 'tool_result' | 'text' | 'error' | 'subtask' | 'compaction' | 'text_generation';
     content?: string;
     inputData?: Record<string, any>;
     outputData?: Record<string, any>;
     reason?: string;
     durationMs?: number;
+    tokensInput?: number;
+    tokensOutput?: number;
+    tokensReasoning?: number;
+    cost?: number;
   }): Promise<string> {
     await this.ensureInitialized();
     if (this.config.captureSteps) {

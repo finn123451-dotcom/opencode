@@ -69,6 +69,7 @@ export interface MessagePartData {
 
 export interface ReasoningChainData {
   id: string;
+  sessionId?: string;
   messageId: string;
   content: string;
   model?: string;
@@ -81,6 +82,7 @@ export interface ReasoningChainData {
 
 export interface ToolCallData {
   id: string;
+  sessionId?: string;
   messageId: string;
   callId: string;
   toolName: string;
@@ -698,6 +700,88 @@ export class TrajectoryStorage {
     ]);
 
     return result.rows[0].id;
+  }
+
+  async updateStep(
+    id: string,
+    updates: Partial<StepData>
+  ): Promise<void> {
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (updates.content !== undefined) {
+      setClauses.push(`content = $${paramIndex++}`);
+      values.push(updates.content);
+    }
+    if (updates.inputData !== undefined) {
+      setClauses.push(`input_data = $${paramIndex++}`);
+      values.push(JSON.stringify(updates.inputData));
+    }
+    if (updates.outputData !== undefined) {
+      setClauses.push(`output_data = $${paramIndex++}`);
+      values.push(JSON.stringify(updates.outputData));
+    }
+    if (updates.snapshotId !== undefined) {
+      setClauses.push(`snapshot_id = $${paramIndex++}`);
+      values.push(updates.snapshotId);
+    }
+    if (updates.patchId !== undefined) {
+      setClauses.push(`patch_id = $${paramIndex++}`);
+      values.push(updates.patchId);
+    }
+    if (updates.toolCallId !== undefined) {
+      setClauses.push(`tool_call_id = $${paramIndex++}`);
+      values.push(updates.toolCallId);
+    }
+    if (updates.reason !== undefined) {
+      setClauses.push(`reason = $${paramIndex++}`);
+      values.push(updates.reason);
+    }
+    if (updates.status !== undefined) {
+      setClauses.push(`status = $${paramIndex++}`);
+      values.push(updates.status);
+    }
+    if (updates.tokensInput !== undefined) {
+      setClauses.push(`tokens_input = $${paramIndex++}`);
+      values.push(updates.tokensInput);
+    }
+    if (updates.tokensOutput !== undefined) {
+      setClauses.push(`tokens_output = $${paramIndex++}`);
+      values.push(updates.tokensOutput);
+    }
+    if (updates.tokensReasoning !== undefined) {
+      setClauses.push(`tokens_reasoning = $${paramIndex++}`);
+      values.push(updates.tokensReasoning);
+    }
+    if (updates.cost !== undefined) {
+      setClauses.push(`cost = $${paramIndex++}`);
+      values.push(updates.cost);
+    }
+    if (updates.timeEnd !== undefined) {
+      setClauses.push(`time_end = $${paramIndex++}`);
+      values.push(updates.timeEnd);
+    }
+    if (updates.durationMs !== undefined) {
+      setClauses.push(`duration_ms = $${paramIndex++}`);
+      values.push(updates.durationMs);
+    }
+    if (updates.stepGroup !== undefined) {
+      setClauses.push(`step_group = $${paramIndex++}`);
+      values.push(updates.stepGroup);
+    }
+    if (updates.metadata !== undefined) {
+      setClauses.push(`metadata = $${paramIndex++}`);
+      values.push(JSON.stringify(updates.metadata));
+    }
+
+    if (setClauses.length === 0) return;
+
+    values.push(id);
+    await this.pool.query(
+      `UPDATE steps SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
+      values
+    );
   }
 
   async createTrajectory(data: TrajectoryData): Promise<string> {

@@ -288,16 +288,33 @@ export class TrajectoryCapture extends EventEmitter {
     reasoningId?: string;
     content: string;
     model?: string;
+    providerMetadata?: Record<string, any>;
   }): Promise<string | void> {
     if (!this.config.enabled || !this.currentSessionId) return;
 
-    // Use provided reasoningId or generate a new one
     const actualReasoningId = reasoning.reasoningId || uuidv4();
-    await this.captureReasoningStart(messageId, actualReasoningId, { model: reasoning.model });
+    
+    // Check if already exists in buffer
+    let existingReasoning = this.reasoningBuffer.find(r => r.id === actualReasoningId);
+    
+    if (!existingReasoning) {
+      // Start new reasoning (INSERT)
+      await this.captureReasoningStart(messageId, actualReasoningId, { 
+        model: reasoning.model,
+        providerMetadata: reasoning.providerMetadata,
+      });
+      existingReasoning = this.reasoningBuffer.find(r => r.id === actualReasoningId);
+    }
 
-    if (reasoning.content) {
-      await this.captureReasoningDelta(actualReasoningId, reasoning.content);
-      await this.captureReasoningEnd(actualReasoningId, reasoning.content);
+    if (reasoning.content && existingReasoning) {
+      existingReasoning.content = reasoning.content;
+      existingReasoning.timeEnd = Date.now();
+      
+      // Update existing record (UPDATE, not INSERT)
+      await trajectoryStorage.updateReasoningChain(actualReasoningId, {
+        content: reasoning.content,
+        timeEnd: existingReasoning.timeEnd,
+      });
     }
 
     return actualReasoningId;
@@ -384,16 +401,53 @@ export class TrajectoryCapture extends EventEmitter {
   }
 
   async captureStep(messageId: string, step: {
+    stepId?: string;
     stepType: 'reasoning' | 'tool_call' | 'tool_result' | 'text' | 'error' | 'subtask' | 'compaction' | 'text_generation';
     content?: string;
     inputData?: Record<string, any>;
     outputData?: Record<string, any>;
     reason?: string;
     durationMs?: number;
+    tokensInput?: number;
+    tokensOutput?: number;
+    tokensReasoning?: number;
+    cost?: number;
   }): Promise<string> {
     if (!this.config.enabled || !this.currentSessionId) return '';
 
-    const stepId = uuidv4();
+    const stepId = step.stepId || uuidv4();
+    
+    // Check if step already exists in buffer
+    let existingStep = this.stepBuffer.find(s => s.id === stepId);
+    
+    if (existingStep) {
+      // Update existing step
+      existingStep.content = step.content || existingStep.content;
+      existingStep.outputData = step.outputData || existingStep.outputData;
+      existingStep.reason = step.reason || existingStep.reason;
+      existingStep.durationMs = step.durationMs || existingStep.durationMs;
+      existingStep.tokensInput = step.tokensInput;
+      existingStep.tokensOutput = step.tokensOutput;
+      existingStep.tokensReasoning = step.tokensReasoning;
+      existingStep.cost = step.cost;
+      existingStep.timeEnd = Date.now();
+
+      await trajectoryStorage.updateStep(stepId, {
+        content: existingStep.content,
+        outputData: existingStep.outputData,
+        reason: existingStep.reason,
+        durationMs: existingStep.durationMs,
+        tokensInput: existingStep.tokensInput,
+        tokensOutput: existingStep.tokensOutput,
+        tokensReasoning: existingStep.tokensReasoning,
+        cost: existingStep.cost,
+        timeEnd: existingStep.timeEnd,
+      });
+
+      return stepId;
+    }
+
+    // Create new step
     const stepData: StepData = {
       id: stepId,
       trajectoryId: this.currentTrajectoryId || undefined,
@@ -406,6 +460,10 @@ export class TrajectoryCapture extends EventEmitter {
       outputData: step.outputData,
       reason: step.reason,
       durationMs: step.durationMs,
+      tokensInput: step.tokensInput,
+      tokensOutput: step.tokensOutput,
+      tokensReasoning: step.tokensReasoning,
+      cost: step.cost,
       timeStart: Date.now(),
     };
 

@@ -125,13 +125,21 @@ export class SessionTrajectoryTracker extends EventEmitter {
     }
   }
 
-  async captureAssistantMessage(messageId: string, content: string): Promise<void> {
+  async captureAssistantMessage(messageId: string, content: string, metadata?: {
+    model?: string;
+    providerId?: string;
+    finishReason?: string;
+    cost?: number;
+    tokensInput?: number;
+    tokensOutput?: number;
+    tokensReasoning?: number;
+  }): Promise<void> {
     if (!this.enabled) return;
 
     this.currentMessageId = messageId;
 
     try {
-      await opencodeIntegration.captureAssistantMessage(messageId, content);
+      await opencodeIntegration.captureAssistantMessage(messageId, content, metadata);
     } catch (error) {
       logger.error("failed to capture assistant message", { error });
     }
@@ -144,12 +152,15 @@ export class SessionTrajectoryTracker extends EventEmitter {
 
     try {
       await opencodeIntegration.captureReasoning(messageId, {
+        reasoningId,
         content: '',
         model: metadata?.model,
+        providerMetadata: metadata,
       });
     } catch (error) {
       logger.error("failed to capture reasoning start", { error });
     }
+  }
   }
 
   async handleReasoningDelta(reasoningId: string, text: string): Promise<void> {
@@ -177,7 +188,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
     }
   }
 
-  async handleToolCallStart(messageId: string, toolCallId: string, toolName: string, input: any): Promise<void> {
+  async handleToolCallStart(messageId: string, toolCallId: string, toolName: string, input: any, callId?: string): Promise<void> {
     if (!this.enabled || !this.config.captureTools) return;
 
     this.activeToolCalls.set(toolCallId, { toolName, startTime: Date.now(), input });
@@ -187,6 +198,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
         toolName,
         input,
         toolCallId,
+        callId,
       });
     } catch (error) {
       logger.error("failed to capture tool call start", { error });
@@ -248,9 +260,25 @@ export class SessionTrajectoryTracker extends EventEmitter {
     if (!this.enabled || !this.config.captureSteps) return;
   }
 
+  async captureStepStart(messageId: string, stepId?: string): Promise<string> {
+    if (!this.enabled || !this.config.captureSteps) return '';
+
+    try {
+      return await opencodeIntegration.captureStep(messageId, {
+        stepId,
+        stepType: 'text_generation',
+      });
+    } catch (error) {
+      logger.error("failed to capture step start", { error });
+      return '';
+    }
+  }
+
   async handleStepEnd(messageId: string, stepId: string, stepData: {
     reason?: string;
-    tokens?: number;
+    tokensInput?: number;
+    tokensOutput?: number;
+    tokensReasoning?: number;
     cost?: number;
     patch?: { hash: string; files: any[] };
   }): Promise<void> {
@@ -259,9 +287,15 @@ export class SessionTrajectoryTracker extends EventEmitter {
     try {
       if (this.currentMessageId) {
         await opencodeIntegration.captureStep(this.currentMessageId, {
+          stepId,
           stepType: stepData.reason === 'patch' ? 'text' : 'text_generation',
           content: stepData.patch?.files ? JSON.stringify(stepData.patch.files) : undefined,
           outputData: stepData,
+          reason: stepData.reason,
+          tokensInput: stepData.tokensInput,
+          tokensOutput: stepData.tokensOutput,
+          tokensReasoning: stepData.tokensReasoning,
+          cost: stepData.cost,
         });
       }
     } catch (error) {

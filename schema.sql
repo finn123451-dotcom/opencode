@@ -128,6 +128,7 @@ CREATE INDEX idx_messages_finish_reason ON messages(finish_reason);
 -- ============================================
 CREATE TABLE message_parts (
     id VARCHAR(255) PRIMARY KEY,
+    session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE SET NULL,
     message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
     part_type VARCHAR(50) NOT NULL,
     content TEXT,
@@ -136,6 +137,7 @@ CREATE TABLE message_parts (
     metadata JSONB DEFAULT '{}'
 );
 
+CREATE INDEX idx_message_parts_session_id ON message_parts(session_id);
 CREATE INDEX idx_message_parts_message_id ON message_parts(message_id);
 CREATE INDEX idx_message_parts_type ON message_parts(part_type);
 
@@ -144,6 +146,7 @@ CREATE INDEX idx_message_parts_type ON message_parts(part_type);
 -- ============================================
 CREATE TABLE reasoning_chains (
     id VARCHAR(255) PRIMARY KEY,
+    session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE SET NULL,
     message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
     content TEXT NOT NULL,
     model VARCHAR(255),
@@ -155,6 +158,7 @@ CREATE TABLE reasoning_chains (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+CREATE INDEX idx_reasoning_session_id ON reasoning_chains(session_id);
 CREATE INDEX idx_reasoning_message_id ON reasoning_chains(message_id);
 CREATE INDEX idx_reasoning_model ON reasoning_chains(model);
 CREATE INDEX idx_reasoning_time_start ON reasoning_chains(time_start DESC);
@@ -165,6 +169,7 @@ CREATE INDEX idx_reasoning_part_order ON reasoning_chains(part_order);
 -- ============================================
 CREATE TABLE tool_calls (
     id VARCHAR(255) PRIMARY KEY,
+    session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE SET NULL,
     message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
     call_id VARCHAR(255) NOT NULL,
     tool_name VARCHAR(255) NOT NULL,
@@ -187,6 +192,7 @@ CREATE TABLE tool_calls (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+CREATE INDEX idx_tool_calls_session_id ON tool_calls(session_id);
 CREATE INDEX idx_tool_calls_message_id ON tool_calls(message_id);
 CREATE INDEX idx_tool_calls_call_id ON tool_calls(call_id);
 CREATE INDEX idx_tool_calls_tool_name ON tool_calls(tool_name);
