@@ -297,6 +297,14 @@ export namespace SessionProcessor {
                       input.assistantMessage.id,
                       value.stepId
                     )
+                    await sessionTrajectoryTracker.captureSnapshot({
+                      messageId: input.assistantMessage.id,
+                      stepId: value.stepId,
+                      snapshotHash: snapshot?.hash || '',
+                      workingDirectory: input.assistantMessage.path.cwd,
+                      fileCount: snapshot?.files?.length || 0,
+                      fileList: snapshot?.files?.map(f => f.path) || [],
+                    })
                   }
                   break
 
@@ -322,9 +330,10 @@ export namespace SessionProcessor {
                   await Session.updateMessage(input.assistantMessage)
                   // Capture assistant message with complete metadata
                   if (sessionTrajectoryTracker.isEnabled()) {
+                    const parts = await MessageV2.parts(input.assistantMessage.id)
                     await sessionTrajectoryTracker.captureAssistantMessage(
                       input.assistantMessage.id,
-                      input.assistantMessage.parts
+                      parts
                         .filter(p => p.type === "text")
                         .map(p => (p as any).text)
                         .join("\n"),
@@ -363,6 +372,20 @@ export namespace SessionProcessor {
                         hash: patch.hash,
                         files: patch.files,
                       })
+                      if (sessionTrajectoryTracker.isEnabled()) {
+                        for (const file of patch.files) {
+                          await sessionTrajectoryTracker.capturePatch({
+                            messageId: input.assistantMessage.id,
+                            stepId: currentStepId,
+                            patchHash: patch.hash,
+                            filePath: file.path,
+                            fileDiff: file.content,
+                            additions: file.additions,
+                            deletions: file.deletions,
+                            diffStats: { additions: file.additions, deletions: file.deletions },
+                          })
+                        }
+                      }
                     }
                     snapshot = undefined
                   }

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { trajectoryStorage, CompleteTrajectoryData, SessionData, MessageData, StepData, ToolCallData, TrajectoryData, MessagePartData, ReasoningChainData, ToolAttachmentData, FileOperationData, SnapshotData, PatchData, SubtaskData, SessionCompactionData, RetryData } from './trajectory';
+import { trajectoryStorage, CompleteTrajectoryData, SessionData, MessageData, StepData, ToolCallData, TrajectoryData, MessagePartData, ReasoningChainData, ToolAttachmentData, FileOperationData, SnapshotData, PatchData, SubtaskData, SessionCompactionData, RetryData, ExecutionLogData, ApiCallLogData, CostStatisticData, PermissionRequestData } from './trajectory';
 import { knowledgeBase, memoryManager } from './knowledge';
 import { v4 as uuidv4 } from 'uuid';
 import { Log } from "../../util/log";
@@ -44,6 +44,9 @@ export class TrajectoryCapture extends EventEmitter {
   private subtaskBuffer: SubtaskData[] = [];
   private compactionBuffer: SessionCompactionData[] = [];
   private retryBuffer: RetryData[] = [];
+  private executionLogBuffer: ExecutionLogData[] = [];
+  private apiCallLogBuffer: ApiCallLogData[] = [];
+  private permissionRequestBuffer: PermissionRequestData[] = [];
 
   constructor(config: Partial<TrajectoryCaptureConfig> = {}) {
     super();
@@ -76,10 +79,15 @@ export class TrajectoryCapture extends EventEmitter {
     version?: string;
     permission?: Record<string, any>[];
   }): Promise<string> {
-    if (!this.config.enabled) return sessionInfo.sessionId;
+    if (!this.config.enabled) {
+      logger.debug("capture disabled, not starting session");
+      return sessionInfo.sessionId;
+    }
 
     this.currentSessionId = sessionInfo.sessionId;
     this.startTime = new Date();
+    
+    logger.info("starting session", { sessionId: sessionInfo.sessionId, directory: sessionInfo.directory });
 
     this.sessionBuffer = {
       id: sessionInfo.sessionId,
@@ -161,7 +169,10 @@ export class TrajectoryCapture extends EventEmitter {
     systemPrompt?: string;
     tokens?: number;
   }): Promise<void> {
-    if (!this.config.enabled || !this.currentSessionId) return;
+    if (!this.config.enabled || !this.currentSessionId) {
+      logger.debug("skipping captureUserMessage", { enabled: this.config.enabled, sessionId: this.currentSessionId });
+      return;
+    }
 
     const messageData: MessageData = {
       id: messageId,
@@ -201,7 +212,10 @@ export class TrajectoryCapture extends EventEmitter {
     tokensOutput?: number;
     tokensReasoning?: number;
   }): Promise<void> {
-    if (!this.config.enabled || !this.currentSessionId) return;
+    if (!this.config.enabled || !this.currentSessionId) {
+      logger.debug("skipping captureAssistantMessage", { enabled: this.config.enabled, sessionId: this.currentSessionId });
+      return;
+    }
 
     const messageData: MessageData = {
       id: messageId,
@@ -306,14 +320,22 @@ export class TrajectoryCapture extends EventEmitter {
       existingReasoning = this.reasoningBuffer.find(r => r.id === actualReasoningId);
     }
 
-    if (reasoning.content && existingReasoning) {
-      existingReasoning.content = reasoning.content;
-      existingReasoning.timeEnd = Date.now();
+    if (existingReasoning) {
+      // Update messageId if provided and different
+      if (messageId && messageId !== existingReasoning.messageId) {
+        existingReasoning.messageId = messageId;
+      }
+      
+      if (reasoning.content) {
+        existingReasoning.content = reasoning.content;
+        existingReasoning.timeEnd = Date.now();
+      }
       
       // Update existing record (UPDATE, not INSERT)
       await trajectoryStorage.updateReasoningChain(actualReasoningId, {
-        content: reasoning.content,
+        content: existingReasoning.content,
         timeEnd: existingReasoning.timeEnd,
+        messageId: existingReasoning.messageId,
       });
     }
 
@@ -660,6 +682,309 @@ export class TrajectoryCapture extends EventEmitter {
     } else if (message.role === 'assistant') {
       await this.captureAssistantMessage(message.id, message.content, message.metadata);
     }
+  }
+
+  async captureFileOperation(operation: {
+    messageId?: string;
+    toolCallId?: string;
+    operationType: 'read' | 'write' | 'edit' | 'glob' | 'grep' | 'list' | 'bash';
+    filePath: string;
+    fileContent?: string;
+    fileMime?: string;
+    fileSize?: number;
+    offset?: number;
+    limit?: number;
+    diffContent?: string;
+    diffHash?: string;
+    diffStats?: Record<string, any>;
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    if (!this.config.enabled || !this.currentSessionId || !this.config.captureFiles) return '';
+
+    const id = uuidv4();
+    const data: FileOperationData = {
+      id,
+      sessionId: this.currentSessionId,
+      messageId: operation.messageId || this.currentMessageId || undefined,
+      toolCallId: operation.toolCallId,
+      operationType: operation.operationType,
+      filePath: operation.filePath,
+      fileContent: operation.fileContent,
+      fileMime: operation.fileMime,
+      fileSize: operation.fileSize,
+      offset: operation.offset,
+      limit: operation.limit,
+      diffContent: operation.diffContent,
+      diffHash: operation.diffHash,
+      diffStats: operation.diffStats,
+      operationOrder: this.fileOpBuffer.length,
+      metadata: operation.metadata,
+    };
+
+    await trajectoryStorage.createFileOperation(data);
+    this.fileOpBuffer.push(data);
+
+    return id;
+  }
+
+  async captureSnapshot(snapshot: {
+    messageId?: string;
+    stepId?: string;
+    snapshotHash: string;
+    workingDirectory?: string;
+    fileCount?: number;
+    fileList?: string[];
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    if (!this.config.enabled || !this.currentSessionId || !this.config.captureSnapshots) return '';
+
+    const id = uuidv4();
+    const data: SnapshotData = {
+      id,
+      sessionId: this.currentSessionId,
+      messageId: snapshot.messageId || this.currentMessageId || undefined,
+      stepId: snapshot.stepId,
+      snapshotHash: snapshot.snapshotHash,
+      workingDirectory: snapshot.workingDirectory,
+      fileCount: snapshot.fileCount,
+      fileList: snapshot.fileList,
+      timeCreated: Date.now(),
+      snapshotOrder: this.snapshotBuffer.length,
+      metadata: snapshot.metadata,
+    };
+
+    await trajectoryStorage.createSnapshot(data);
+    this.snapshotBuffer.push(data);
+
+    return id;
+  }
+
+  async capturePatch(patch: {
+    messageId?: string;
+    stepId?: string;
+    patchHash: string;
+    filePath: string;
+    fileDiff?: string;
+    additions?: number;
+    deletions?: number;
+    diffStats?: Record<string, any>;
+    originalContent?: string;
+    patchedContent?: string;
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    if (!this.config.enabled || !this.currentSessionId || !this.config.capturePatches) return '';
+
+    const id = uuidv4();
+    const data: PatchData = {
+      id,
+      sessionId: this.currentSessionId,
+      messageId: patch.messageId || this.currentMessageId || undefined,
+      stepId: patch.stepId,
+      patchHash: patch.patchHash,
+      filePath: patch.filePath,
+      fileDiff: patch.fileDiff,
+      additions: patch.additions,
+      deletions: patch.deletions,
+      diffStats: patch.diffStats,
+      originalContent: patch.originalContent,
+      patchedContent: patch.patchedContent,
+      timeCreated: Date.now(),
+      patchOrder: this.patchBuffer.length,
+      metadata: patch.metadata,
+    };
+
+    await trajectoryStorage.createPatch(data);
+    this.patchBuffer.push(data);
+
+    return id;
+  }
+
+  async captureRetry(retry: {
+    messageId: string;
+    attemptNumber: number;
+    errorName?: string;
+    errorMessage?: string;
+    errorDetails?: Record<string, any>;
+    errorStack?: string;
+    status?: 'pending' | 'completed' | 'failed';
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    if (!this.config.enabled || !this.currentSessionId) return '';
+
+    const id = uuidv4();
+    const data: RetryData = {
+      id,
+      sessionId: this.currentSessionId,
+      messageId: retry.messageId,
+      attemptNumber: retry.attemptNumber,
+      errorName: retry.errorName,
+      errorMessage: retry.errorMessage,
+      errorDetails: retry.errorDetails,
+      errorStack: retry.errorStack,
+      status: retry.status || 'pending',
+      timeCreated: Date.now(),
+      metadata: retry.metadata,
+    };
+
+    await trajectoryStorage.createRetry(data);
+    this.retryBuffer.push(data);
+
+    return id;
+  }
+
+  async captureExecutionLog(log: {
+    stepId?: string;
+    toolCallId?: string;
+    logLevel: 'debug' | 'info' | 'warn' | 'error';
+    source?: string;
+    message: string;
+    data?: Record<string, any>;
+  }): Promise<number> {
+    if (!this.config.enabled || !this.currentSessionId) return 0;
+
+    const data: ExecutionLogData = {
+      trajectoryId: this.currentTrajectoryId || undefined,
+      sessionId: this.currentSessionId,
+      stepId: log.stepId,
+      toolCallId: log.toolCallId,
+      logLevel: log.logLevel,
+      source: log.source,
+      message: log.message,
+      data: log.data,
+      timeCreated: Date.now(),
+    };
+
+    const id = await trajectoryStorage.createExecutionLog(data);
+    this.executionLogBuffer.push(data);
+
+    return id;
+  }
+
+  async captureApiCall(apiCall: {
+    messageId?: string;
+    providerId: string;
+    modelId?: string;
+    endpoint?: string;
+    requestBody?: Record<string, any>;
+    responseBody?: Record<string, any>;
+    statusCode?: number;
+    latencyMs?: number;
+    cost?: number;
+    tokensInput?: number;
+    tokensOutput?: number;
+    errorMessage?: string;
+    errorCode?: string;
+    metadata?: Record<string, any>;
+  }): Promise<number> {
+    if (!this.config.enabled || !this.currentSessionId) return 0;
+
+    const data: ApiCallLogData = {
+      trajectoryId: this.currentTrajectoryId || undefined,
+      messageId: apiCall.messageId || this.currentMessageId || undefined,
+      providerId: apiCall.providerId,
+      modelId: apiCall.modelId,
+      endpoint: apiCall.endpoint,
+      requestBody: apiCall.requestBody,
+      responseBody: apiCall.responseBody,
+      statusCode: apiCall.statusCode,
+      latencyMs: apiCall.latencyMs,
+      cost: apiCall.cost,
+      tokensInput: apiCall.tokensInput,
+      tokensOutput: apiCall.tokensOutput,
+      errorMessage: apiCall.errorMessage,
+      errorCode: apiCall.errorCode,
+      timeCreated: Date.now(),
+      metadata: apiCall.metadata,
+    };
+
+    const id = await trajectoryStorage.createApiCallLog(data);
+    this.apiCallLogBuffer.push(data);
+
+    return id;
+  }
+
+  async capturePermissionRequest(request: {
+    permissionType: string;
+    action: string;
+    pattern?: string;
+    toolName?: string;
+    inputData?: Record<string, any>;
+    status?: 'pending' | 'approved' | 'denied';
+    userResponse?: string;
+    responseMessage?: string;
+    respondedAt?: number;
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    if (!this.config.enabled || !this.currentSessionId) return '';
+
+    const data: PermissionRequestData = {
+      sessionId: this.currentSessionId,
+      trajectoryId: this.currentTrajectoryId || undefined,
+      permissionType: request.permissionType,
+      action: request.action,
+      pattern: request.pattern,
+      toolName: request.toolName,
+      inputData: request.inputData,
+      status: request.status || 'pending',
+      userResponse: request.userResponse,
+      responseMessage: request.responseMessage,
+      timeCreated: Date.now(),
+      respondedAt: request.respondedAt,
+      metadata: request.metadata,
+    };
+
+    const id = await trajectoryStorage.createPermissionRequest(data);
+    this.permissionRequestBuffer.push(data);
+
+    return id;
+  }
+
+  async captureCostStatistic(stat: {
+    trajectoryId?: string;
+    providerId?: string;
+    modelId?: string;
+    costInput?: number;
+    costOutput?: number;
+    costCacheRead?: number;
+    costCacheWrite?: number;
+    costReasoning?: number;
+    totalCost?: number;
+    tokensInput?: number;
+    tokensOutput?: number;
+    tokensReasoning?: number;
+    tokensCacheRead?: number;
+    tokensCacheWrite?: number;
+    apiCalls?: number;
+    periodStart?: number;
+    periodEnd?: number;
+    metadata?: Record<string, any>;
+  }): Promise<number> {
+    if (!this.config.enabled || !this.currentSessionId) return 0;
+
+    const data: CostStatisticData = {
+      sessionId: this.currentSessionId,
+      trajectoryId: stat.trajectoryId || this.currentTrajectoryId || undefined,
+      providerId: stat.providerId,
+      modelId: stat.modelId,
+      costInput: stat.costInput,
+      costOutput: stat.costOutput,
+      costCacheRead: stat.costCacheRead,
+      costCacheWrite: stat.costCacheWrite,
+      costReasoning: stat.costReasoning,
+      totalCost: stat.totalCost,
+      tokensInput: stat.tokensInput,
+      tokensOutput: stat.tokensOutput,
+      tokensReasoning: stat.tokensReasoning,
+      tokensCacheRead: stat.tokensCacheRead,
+      tokensCacheWrite: stat.tokensCacheWrite,
+      apiCalls: stat.apiCalls,
+      periodStart: stat.periodStart || Date.now(),
+      periodEnd: stat.periodEnd,
+      metadata: stat.metadata,
+    };
+
+    const id = await trajectoryStorage.createCostStatistic(data);
+    return id;
   }
 }
 

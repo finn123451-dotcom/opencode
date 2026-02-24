@@ -248,6 +248,75 @@ export interface RetryData {
   metadata?: Record<string, any>;
 }
 
+export interface ExecutionLogData {
+  trajectoryId?: string;
+  sessionId: string;
+  stepId?: string;
+  toolCallId?: string;
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+  source?: string;
+  message: string;
+  data?: Record<string, any>;
+  timeCreated: number;
+}
+
+export interface ApiCallLogData {
+  trajectoryId?: string;
+  messageId?: string;
+  providerId: string;
+  modelId?: string;
+  endpoint?: string;
+  requestBody?: Record<string, any>;
+  responseBody?: Record<string, any>;
+  statusCode?: number;
+  latencyMs?: number;
+  cost?: number;
+  tokensInput?: number;
+  tokensOutput?: number;
+  errorMessage?: string;
+  errorCode?: string;
+  timeCreated: number;
+  metadata?: Record<string, any>;
+}
+
+export interface CostStatisticData {
+  sessionId: string;
+  trajectoryId?: string;
+  providerId?: string;
+  modelId?: string;
+  costInput?: number;
+  costOutput?: number;
+  costCacheRead?: number;
+  costCacheWrite?: number;
+  costReasoning?: number;
+  totalCost?: number;
+  tokensInput?: number;
+  tokensOutput?: number;
+  tokensReasoning?: number;
+  tokensCacheRead?: number;
+  tokensCacheWrite?: number;
+  apiCalls?: number;
+  periodStart: number;
+  periodEnd?: number;
+  metadata?: Record<string, any>;
+}
+
+export interface PermissionRequestData {
+  sessionId: string;
+  trajectoryId?: string;
+  permissionType: string;
+  action: string;
+  pattern?: string;
+  toolName?: string;
+  inputData?: Record<string, any>;
+  status: 'pending' | 'approved' | 'denied';
+  userResponse?: string;
+  responseMessage?: string;
+  timeCreated: number;
+  respondedAt?: number;
+  metadata?: Record<string, any>;
+}
+
 export interface TrajectoryData {
   id: string;
   sessionId: string;
@@ -449,14 +518,19 @@ export class TrajectoryStorage {
   }
 
   async createReasoningChain(data: ReasoningChainData): Promise<string> {
-    // Check if message exists, if not set message_id to NULL
+    // Check if message exists, if not set message_id to NULL due to foreign key constraint
     let messageId = data.messageId;
     if (messageId) {
-      const checkResult = await this.pool.query(
-        'SELECT id FROM messages WHERE id = $1',
-        [messageId]
-      );
-      if (checkResult.rows.length === 0) {
+      try {
+        const checkResult = await this.pool.query(
+          'SELECT id FROM messages WHERE id = $1',
+          [messageId]
+        );
+        if (checkResult.rows.length === 0) {
+          messageId = null;
+        }
+      } catch {
+        // If query fails, set to null
         messageId = null;
       }
     }
@@ -491,15 +565,40 @@ export class TrajectoryStorage {
     return result.rows[0].id;
   }
 
+  async updateReasoningChain(id: string, data: {
+    content?: string;
+    timeEnd?: number;
+    messageId?: string;
+  }): Promise<void> {
+    const query = `
+      UPDATE reasoning_chains SET
+        content = COALESCE($2, reasoning_chains.content),
+        time_end = COALESCE($3, reasoning_chains.time_end),
+        message_id = COALESCE($4, reasoning_chains.message_id)
+      WHERE id = $1
+    `;
+
+    await this.pool.query(query, [
+      id,
+      data.content || null,
+      data.timeEnd || null,
+      data.messageId || null,
+    ]);
+  }
+
   async createToolCall(data: ToolCallData): Promise<string> {
-    // Check if message exists, if not set message_id to NULL
+    // Check if message exists, if not set message_id to NULL due to foreign key constraint
     let messageId = data.messageId;
     if (messageId) {
-      const checkResult = await this.pool.query(
-        'SELECT id FROM messages WHERE id = $1',
-        [messageId]
-      );
-      if (checkResult.rows.length === 0) {
+      try {
+        const checkResult = await this.pool.query(
+          'SELECT id FROM messages WHERE id = $1',
+          [messageId]
+        );
+        if (checkResult.rows.length === 0) {
+          messageId = null;
+        }
+      } catch {
         messageId = null;
       }
     }
@@ -614,25 +713,34 @@ export class TrajectoryStorage {
   }
 
   async createStep(data: StepData): Promise<string> {
-    // Check if message and trajectory exist, if not set to NULL
+    // Check if message exists, if not set message_id to NULL due to foreign key constraint
     let messageId = data.messageId;
     if (messageId) {
-      const checkResult = await this.pool.query(
-        'SELECT id FROM messages WHERE id = $1',
-        [messageId]
-      );
-      if (checkResult.rows.length === 0) {
+      try {
+        const checkResult = await this.pool.query(
+          'SELECT id FROM messages WHERE id = $1',
+          [messageId]
+        );
+        if (checkResult.rows.length === 0) {
+          messageId = null;
+        }
+      } catch {
         messageId = null;
       }
     }
 
+    // Also check trajectory
     let trajectoryId = data.trajectoryId;
     if (trajectoryId) {
-      const checkResult = await this.pool.query(
-        'SELECT id FROM trajectories WHERE id = $1',
-        [trajectoryId]
-      );
-      if (checkResult.rows.length === 0) {
+      try {
+        const checkResult = await this.pool.query(
+          'SELECT id FROM trajectories WHERE id = $1',
+          [trajectoryId]
+        );
+        if (checkResult.rows.length === 0) {
+          trajectoryId = null;
+        }
+      } catch {
         trajectoryId = null;
       }
     }
@@ -1022,14 +1130,18 @@ export class TrajectoryStorage {
   }
 
   async createMessagePart(data: MessagePartData): Promise<string> {
-    // Check if message exists, if not set message_id to NULL
+    // Check if message exists, if not set message_id to NULL due to foreign key constraint
     let messageId = data.messageId;
     if (messageId) {
-      const checkResult = await this.pool.query(
-        'SELECT id FROM messages WHERE id = $1',
-        [messageId]
-      );
-      if (checkResult.rows.length === 0) {
+      try {
+        const checkResult = await this.pool.query(
+          'SELECT id FROM messages WHERE id = $1',
+          [messageId]
+        );
+        if (checkResult.rows.length === 0) {
+          messageId = null;
+        }
+      } catch {
         messageId = null;
       }
     }
@@ -1148,6 +1260,328 @@ export class TrajectoryStorage {
       ORDER BY rc.time_start ASC
     `, [sessionId]);
     return result.rows;
+  }
+
+  async createExecutionLog(data: ExecutionLogData): Promise<number> {
+    const query = `
+      INSERT INTO execution_logs (trajectory_id, session_id, step_id, tool_call_id, log_level, source, message, data, time_created)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id
+    `;
+
+    const result = await this.pool.query(query, [
+      data.trajectoryId || null,
+      data.sessionId,
+      data.stepId || null,
+      data.toolCallId || null,
+      data.logLevel,
+      data.source || null,
+      data.message,
+      JSON.stringify(data.data || {}),
+      data.timeCreated,
+    ]);
+
+    return result.rows[0].id;
+  }
+
+  async createApiCallLog(data: ApiCallLogData): Promise<number> {
+    const query = `
+      INSERT INTO api_call_logs (trajectory_id, message_id, provider_id, model_id, endpoint, request_body, response_body, status_code, latency_ms, cost, tokens_input, tokens_output, error_message, error_code, time_created, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      RETURNING id
+    `;
+
+    const result = await this.pool.query(query, [
+      data.trajectoryId || null,
+      data.messageId || null,
+      data.providerId,
+      data.modelId || null,
+      data.endpoint || null,
+      JSON.stringify(data.requestBody || {}),
+      JSON.stringify(data.responseBody || {}),
+      data.statusCode || null,
+      data.latencyMs || null,
+      data.cost || 0,
+      data.tokensInput || 0,
+      data.tokensOutput || 0,
+      data.errorMessage || null,
+      data.errorCode || null,
+      data.timeCreated,
+      JSON.stringify(data.metadata || {}),
+    ]);
+
+    return result.rows[0].id;
+  }
+
+  async createCostStatistic(data: CostStatisticData): Promise<number> {
+    const query = `
+      INSERT INTO cost_statistics (session_id, trajectory_id, provider_id, model_id, cost_input, cost_output, cost_cache_read, cost_cache_write, cost_reasoning, total_cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, api_calls, period_start, period_end, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      RETURNING id
+    `;
+
+    const result = await this.pool.query(query, [
+      data.sessionId,
+      data.trajectoryId || null,
+      data.providerId || null,
+      data.modelId || null,
+      data.costInput || 0,
+      data.costOutput || 0,
+      data.costCacheRead || 0,
+      data.costCacheWrite || 0,
+      data.costReasoning || 0,
+      data.totalCost || 0,
+      data.tokensInput || 0,
+      data.tokensOutput || 0,
+      data.tokensReasoning || 0,
+      data.tokensCacheRead || 0,
+      data.tokensCacheWrite || 0,
+      data.apiCalls || 0,
+      data.periodStart,
+      data.periodEnd || null,
+      JSON.stringify(data.metadata || {}),
+    ]);
+
+    return result.rows[0].id;
+  }
+
+  async createPermissionRequest(data: PermissionRequestData): Promise<string> {
+    const query = `
+      INSERT INTO permission_requests (id, session_id, trajectory_id, permission_type, action, pattern, tool_name, input_data, status, user_response, response_message, time_created, responded_at, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      ON CONFLICT (id) DO UPDATE SET
+        status = COALESCE($9, permission_requests.status),
+        user_response = COALESCE($10, permission_requests.user_response),
+        response_message = COALESCE($11, permission_requests.response_message),
+        responded_at = COALESCE($13, permission_requests.responded_at),
+        metadata = COALESCE($14, permission_requests.metadata)::jsonb
+      RETURNING id
+    `;
+
+    const id = data.id || uuidv4();
+    const result = await this.pool.query(query, [
+      id,
+      data.sessionId,
+      data.trajectoryId || null,
+      data.permissionType,
+      data.action,
+      data.pattern || null,
+      data.toolName || null,
+      JSON.stringify(data.inputData || {}),
+      data.status,
+      data.userResponse || null,
+      data.responseMessage || null,
+      data.timeCreated,
+      data.respondedAt || null,
+      JSON.stringify(data.metadata || {}),
+    ]);
+
+    return result.rows[0].id;
+  }
+
+  async createToolAttachment(data: ToolAttachmentData): Promise<string> {
+    const query = `
+      INSERT INTO tool_attachments (id, tool_call_id, message_id, filename, mime, url, source_type, source_path, source_range, file_size, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ON CONFLICT (id) DO UPDATE SET
+        filename = COALESCE($4, tool_attachments.filename),
+        mime = COALESCE($5, tool_attachments.mime),
+        url = COALESCE($6, tool_attachments.url),
+        source_type = COALESCE($7, tool_attachments.source_type),
+        source_path = COALESCE($8, tool_attachments.source_path),
+        source_range = COALESCE($9, tool_attachments.source_range),
+        file_size = COALESCE($10, tool_attachments.file_size),
+        metadata = COALESCE($11, tool_attachments.metadata)::jsonb
+      RETURNING id
+    `;
+
+    const result = await this.pool.query(query, [
+      data.id,
+      data.toolCallId,
+      data.messageId || null,
+      data.filename || null,
+      data.mime || null,
+      data.url || null,
+      data.sourceType || null,
+      data.sourcePath || null,
+      JSON.stringify(data.sourceRange || {}),
+      data.fileSize || null,
+      JSON.stringify(data.metadata || {}),
+    ]);
+
+    return result.rows[0].id;
+  }
+
+  async createFileOperation(data: FileOperationData): Promise<string> {
+    const query = `
+      INSERT INTO file_operations (id, session_id, message_id, tool_call_id, operation_type, file_path, file_content, file_mime, file_size, file_offset, file_limit, diff_content, diff_hash, diff_stats, operation_order, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      ON CONFLICT (id) DO UPDATE SET
+        operation_type = $5,
+        file_path = COALESCE($6, file_operations.file_path),
+        file_content = COALESCE($7, file_operations.file_content),
+        file_mime = COALESCE($8, file_operations.file_mime),
+        file_size = COALESCE($9, file_operations.file_size),
+        diff_content = COALESCE($12, file_operations.diff_content),
+        diff_stats = COALESCE($14, file_operations.diff_stats),
+        operation_order = COALESCE($15, file_operations.operation_order),
+        metadata = COALESCE($16, file_operations.metadata)::jsonb
+      RETURNING id
+    `;
+
+    const result = await this.pool.query(query, [
+      data.id,
+      data.sessionId,
+      data.messageId || null,
+      data.toolCallId || null,
+      data.operationType,
+      data.filePath,
+      data.fileContent || null,
+      data.fileMime || null,
+      data.fileSize || null,
+      data.offset || null,
+      data.limit || null,
+      data.diffContent || null,
+      data.diffHash || null,
+      JSON.stringify(data.diffStats || {}),
+      data.operationOrder || 0,
+      JSON.stringify(data.metadata || {}),
+    ]);
+
+    return result.rows[0].id;
+  }
+
+  async createSnapshot(data: SnapshotData): Promise<string> {
+    // Check if message exists, if not set message_id to NULL due to foreign key constraint
+    let messageId = data.messageId;
+    if (messageId) {
+      try {
+        const checkResult = await this.pool.query(
+          'SELECT id FROM messages WHERE id = $1',
+          [messageId]
+        );
+        if (checkResult.rows.length === 0) {
+          messageId = null;
+        }
+      } catch {
+        messageId = null;
+      }
+    }
+
+    const query = `
+      INSERT INTO snapshots (id, session_id, message_id, step_id, snapshot_hash, working_directory, file_count, file_list, time_created, snapshot_order, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ON CONFLICT (id) DO UPDATE SET
+        snapshot_hash = COALESCE($5, snapshots.snapshot_hash),
+        working_directory = COALESCE($6, snapshots.working_directory),
+        file_count = COALESCE($7, snapshots.file_count),
+        file_list = COALESCE($8, snapshots.file_list),
+        snapshot_order = COALESCE($10, snapshots.snapshot_order),
+        metadata = COALESCE($11, snapshots.metadata)::jsonb
+      RETURNING id
+    `;
+
+    const result = await this.pool.query(query, [
+      data.id,
+      data.sessionId,
+      messageId,
+      data.stepId || null,
+      data.snapshotHash,
+      data.workingDirectory || null,
+      data.fileCount || 0,
+      JSON.stringify(data.fileList || []),
+      data.timeCreated,
+      data.snapshotOrder || 0,
+      JSON.stringify(data.metadata || {}),
+    ]);
+
+    return result.rows[0].id;
+  }
+
+  async createPatch(data: PatchData): Promise<string> {
+    // Check if message exists, if not set message_id to NULL due to foreign key constraint
+    let messageId = data.messageId;
+    if (messageId) {
+      try {
+        const checkResult = await this.pool.query(
+          'SELECT id FROM messages WHERE id = $1',
+          [messageId]
+        );
+        if (checkResult.rows.length === 0) {
+          messageId = null;
+        }
+      } catch {
+        messageId = null;
+      }
+    }
+
+    const query = `
+      INSERT INTO patches (id, session_id, message_id, step_id, patch_hash, file_path, file_diff, additions, deletions, diff_stats, original_content, patched_content, time_created, patch_order, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      ON CONFLICT (id) DO UPDATE SET
+        patch_hash = COALESCE($5, patches.patch_hash),
+        file_path = COALESCE($6, patches.file_path),
+        file_diff = COALESCE($7, patches.file_diff),
+        additions = COALESCE($8, patches.additions),
+        deletions = COALESCE($9, patches.deletions),
+        diff_stats = COALESCE($10, patches.diff_stats),
+        original_content = COALESCE($11, patches.original_content),
+        patched_content = COALESCE($12, patches.patched_content),
+        patch_order = COALESCE($14, patches.patch_order),
+        metadata = COALESCE($15, patches.metadata)::jsonb
+      RETURNING id
+    `;
+
+    const result = await this.pool.query(query, [
+      data.id,
+      data.sessionId,
+      messageId,
+      data.stepId || null,
+      data.patchHash,
+      data.filePath,
+      data.fileDiff || null,
+      data.additions || 0,
+      data.deletions || 0,
+      JSON.stringify(data.diffStats || {}),
+      data.originalContent || null,
+      data.patchedContent || null,
+      data.timeCreated,
+      data.patchOrder || 0,
+      JSON.stringify(data.metadata || {}),
+    ]);
+
+    return result.rows[0].id;
+  }
+
+  async createRetry(data: RetryData): Promise<string> {
+    const query = `
+      INSERT INTO retries (id, session_id, message_id, attempt_number, error_name, error_message, error_details, error_stack, status, time_created, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ON CONFLICT (id) DO UPDATE SET
+        error_name = COALESCE($5, retries.error_name),
+        error_message = COALESCE($6, retries.error_message),
+        error_details = COALESCE($7, retries.error_details),
+        error_stack = COALESCE($8, retries.error_stack),
+        status = COALESCE($9, retries.status),
+        metadata = COALESCE($11, retries.metadata)::jsonb
+      RETURNING id
+    `;
+
+    const result = await this.pool.query(query, [
+      data.id,
+      data.sessionId,
+      data.messageId,
+      data.attemptNumber,
+      data.errorName || null,
+      data.errorMessage || null,
+      JSON.stringify(data.errorDetails || {}),
+      data.errorStack || null,
+      data.status || 'pending',
+      data.timeCreated,
+      JSON.stringify(data.metadata || {}),
+    ]);
+
+    return result.rows[0].id;
   }
 }
 

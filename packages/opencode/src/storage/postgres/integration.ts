@@ -64,6 +64,7 @@ export class OpenCodeIntegration {
 
   async captureUserMessage(messageId: string, content: string, metadata?: Record<string, any>): Promise<void> {
     await this.ensureInitialized();
+    if (!this.config.captureMessages) return;
     await trajectoryCapture.captureMessage({
       id: messageId,
       role: 'user',
@@ -74,6 +75,7 @@ export class OpenCodeIntegration {
 
   async captureAssistantMessage(messageId: string, content: string, metadata?: Record<string, any>): Promise<void> {
     await this.ensureInitialized();
+    if (!this.config.captureMessages) return;
     await trajectoryCapture.captureMessage({
       id: messageId,
       role: 'assistant',
@@ -92,7 +94,6 @@ export class OpenCodeIntegration {
     if (this.config.captureReasoning) {
       await trajectoryCapture.captureReasoning(messageId, reasoning);
     }
-  }
   }
 
   async captureToolCallStart(messageId: string, toolCall: {
@@ -152,6 +153,141 @@ export class OpenCodeIntegration {
       return await trajectoryCapture.captureStep(messageId, step);
     }
     return '';
+  }
+
+  async captureFileOperation(operation: {
+    messageId?: string;
+    toolCallId?: string;
+    operationType: 'read' | 'write' | 'edit' | 'glob' | 'grep' | 'list' | 'bash';
+    filePath: string;
+    fileContent?: string;
+    fileMime?: string;
+    fileSize?: number;
+    offset?: number;
+    limit?: number;
+    diffContent?: string;
+    diffHash?: string;
+    diffStats?: Record<string, any>;
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    await this.ensureInitialized();
+    return await trajectoryCapture.captureFileOperation(operation);
+  }
+
+  async captureSnapshot(snapshot: {
+    messageId?: string;
+    stepId?: string;
+    snapshotHash: string;
+    workingDirectory?: string;
+    fileCount?: number;
+    fileList?: string[];
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    await this.ensureInitialized();
+    return await trajectoryCapture.captureSnapshot(snapshot);
+  }
+
+  async capturePatch(patch: {
+    messageId?: string;
+    stepId?: string;
+    patchHash: string;
+    filePath: string;
+    fileDiff?: string;
+    additions?: number;
+    deletions?: number;
+    diffStats?: Record<string, any>;
+    originalContent?: string;
+    patchedContent?: string;
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    await this.ensureInitialized();
+    return await trajectoryCapture.capturePatch(patch);
+  }
+
+  async captureRetry(retry: {
+    messageId: string;
+    attemptNumber: number;
+    errorName?: string;
+    errorMessage?: string;
+    errorDetails?: Record<string, any>;
+    errorStack?: string;
+    status?: 'pending' | 'completed' | 'failed';
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    await this.ensureInitialized();
+    return await trajectoryCapture.captureRetry(retry);
+  }
+
+  async captureExecutionLog(log: {
+    stepId?: string;
+    toolCallId?: string;
+    logLevel: 'debug' | 'info' | 'warn' | 'error';
+    source?: string;
+    message: string;
+    data?: Record<string, any>;
+  }): Promise<number> {
+    await this.ensureInitialized();
+    return await trajectoryCapture.captureExecutionLog(log);
+  }
+
+  async captureApiCall(apiCall: {
+    messageId?: string;
+    providerId: string;
+    modelId?: string;
+    endpoint?: string;
+    requestBody?: Record<string, any>;
+    responseBody?: Record<string, any>;
+    statusCode?: number;
+    latencyMs?: number;
+    cost?: number;
+    tokensInput?: number;
+    tokensOutput?: number;
+    errorMessage?: string;
+    errorCode?: string;
+    metadata?: Record<string, any>;
+  }): Promise<number> {
+    await this.ensureInitialized();
+    return await trajectoryCapture.captureApiCall(apiCall);
+  }
+
+  async capturePermissionRequest(request: {
+    permissionType: string;
+    action: string;
+    pattern?: string;
+    toolName?: string;
+    inputData?: Record<string, any>;
+    status?: 'pending' | 'approved' | 'denied';
+    userResponse?: string;
+    responseMessage?: string;
+    respondedAt?: number;
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    await this.ensureInitialized();
+    return await trajectoryCapture.capturePermissionRequest(request);
+  }
+
+  async captureCostStatistic(stat: {
+    trajectoryId?: string;
+    providerId?: string;
+    modelId?: string;
+    costInput?: number;
+    costOutput?: number;
+    costCacheRead?: number;
+    costCacheWrite?: number;
+    costReasoning?: number;
+    totalCost?: number;
+    tokensInput?: number;
+    tokensOutput?: number;
+    tokensReasoning?: number;
+    tokensCacheRead?: number;
+    tokensCacheWrite?: number;
+    apiCalls?: number;
+    periodStart?: number;
+    periodEnd?: number;
+    metadata?: Record<string, any>;
+  }): Promise<number> {
+    await this.ensureInitialized();
+    return await trajectoryCapture.captureCostStatistic(stat);
   }
 
   async completeTrajectory(title?: string, description?: string): Promise<string> {

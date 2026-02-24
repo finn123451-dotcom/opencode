@@ -39,8 +39,8 @@ export function getTrajectoryStorageConfig(): TrajectoryStorageConfig {
         idleTimeoutMs: parseInt(process.env.PGIDLETIMEOUT || '30000'),
         connectionTimeoutMs: parseInt(process.env.PGCONNECTIONTIMEOUT || '5000'),
       },
-      storeEmbeddings: hasOpenAIKey,
-      generateKnowledge: hasOpenAIKey,
+      storeEmbeddings: true, // Always try to store, will skip if no API key
+      generateKnowledge: true, // Always try to generate, will skip if no API key
       captureRate: 1.0,
       batchSize: 100,
       flushInterval: 5000,

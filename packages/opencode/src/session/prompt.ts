@@ -704,6 +704,16 @@ export namespace SessionPrompt {
           tool: { messageID: input.processor.message.id, callID: options.toolCallId },
           ruleset: PermissionNext.merge(input.agent.permission, input.session.permission ?? []),
         })
+        if (sessionTrajectoryTracker.isEnabled()) {
+          await sessionTrajectoryTracker.capturePermissionRequest({
+            permissionType: req.permission,
+            action: 'ask',
+            pattern: req.patterns?.[0],
+            toolName: options.toolCallId,
+            inputData: req.metadata,
+            status: 'pending',
+          })
+        }
       },
     })
 

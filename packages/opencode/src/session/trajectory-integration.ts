@@ -56,23 +56,43 @@ export class SessionTrajectoryTracker extends EventEmitter {
   async initialize(): Promise<void> {
     try {
       const cfg = await Config.get();
-      const configEnabled = cfg.experimental?.trajectoryStorage ?? false;
+      
+      // Always enable by default unless explicitly disabled
+      const configValue = cfg.experimental?.trajectoryStorage;
       const envEnabled = isStorageEnabled();
       
-      if (cfg.experimental?.trajectoryStorage !== undefined) {
-        this.enabled = configEnabled;
+      logger.info("initializing trajectory tracker", { 
+        configValue, 
+        envEnabled,
+        hasExplicitConfig: configValue !== undefined 
+      });
+      
+      // If explicitly set to false, disable. Otherwise enable.
+      if (configValue === false) {
+        this.enabled = false;
+      } else if (configValue === true) {
+        this.enabled = true;
       } else {
+        // Default behavior: enable if env is enabled, otherwise try to enable
         this.enabled = envEnabled;
       }
       
       if (this.enabled) {
-        await opencodeIntegration.initialize();
-        logger.info("storage enabled and initialized");
+        logger.info("initializing storage and capture");
+        try {
+          await opencodeIntegration.initialize();
+          logger.info("storage enabled and initialized successfully");
+        } catch (initError) {
+          logger.error("failed to initialize storage, continuing without storage", { error: initError });
+          this.enabled = false;
+        }
       } else {
         logger.info("storage is disabled");
       }
     } catch (error) {
       logger.error("failed to initialize trajectory tracker", { error });
+      // Don't disable - try to continue without storage
+      this.enabled = false;
     }
   }
 
@@ -160,7 +180,6 @@ export class SessionTrajectoryTracker extends EventEmitter {
     } catch (error) {
       logger.error("failed to capture reasoning start", { error });
     }
-  }
   }
 
   async handleReasoningDelta(reasoningId: string, text: string): Promise<void> {
@@ -285,8 +304,8 @@ export class SessionTrajectoryTracker extends EventEmitter {
     if (!this.enabled || !this.config.captureSteps) return;
 
     try {
-      if (this.currentMessageId) {
-        await opencodeIntegration.captureStep(this.currentMessageId, {
+      if (messageId) {
+        await opencodeIntegration.captureStep(messageId, {
           stepId,
           stepType: stepData.reason === 'patch' ? 'text' : 'text_generation',
           content: stepData.patch?.files ? JSON.stringify(stepData.patch.files) : undefined,
@@ -366,6 +385,189 @@ export class SessionTrajectoryTracker extends EventEmitter {
 
   getCurrentMessageId(): string | null {
     return this.currentMessageId;
+  }
+
+  async captureFileOperation(operation: {
+    messageId?: string;
+    toolCallId?: string;
+    operationType: 'read' | 'write' | 'edit' | 'glob' | 'grep' | 'list' | 'bash';
+    filePath: string;
+    fileContent?: string;
+    fileMime?: string;
+    fileSize?: number;
+    offset?: number;
+    limit?: number;
+    diffContent?: string;
+    diffHash?: string;
+    diffStats?: Record<string, any>;
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    if (!this.enabled) return '';
+
+    try {
+      return await opencodeIntegration.captureFileOperation(operation);
+    } catch (error) {
+      logger.error("failed to capture file operation", { error });
+      return '';
+    }
+  }
+
+  async captureSnapshot(snapshot: {
+    messageId?: string;
+    stepId?: string;
+    snapshotHash: string;
+    workingDirectory?: string;
+    fileCount?: number;
+    fileList?: string[];
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    if (!this.enabled) return '';
+
+    try {
+      return await opencodeIntegration.captureSnapshot(snapshot);
+    } catch (error) {
+      logger.error("failed to capture snapshot", { error });
+      return '';
+    }
+  }
+
+  async capturePatch(patch: {
+    messageId?: string;
+    stepId?: string;
+    patchHash: string;
+    filePath: string;
+    fileDiff?: string;
+    additions?: number;
+    deletions?: number;
+    diffStats?: Record<string, any>;
+    originalContent?: string;
+    patchedContent?: string;
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    if (!this.enabled) return '';
+
+    try {
+      return await opencodeIntegration.capturePatch(patch);
+    } catch (error) {
+      logger.error("failed to capture patch", { error });
+      return '';
+    }
+  }
+
+  async captureRetry(retry: {
+    messageId: string;
+    attemptNumber: number;
+    errorName?: string;
+    errorMessage?: string;
+    errorDetails?: Record<string, any>;
+    errorStack?: string;
+    status?: 'pending' | 'completed' | 'failed';
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    if (!this.enabled) return '';
+
+    try {
+      return await opencodeIntegration.captureRetry(retry);
+    } catch (error) {
+      logger.error("failed to capture retry", { error });
+      return '';
+    }
+  }
+
+  async captureExecutionLog(log: {
+    stepId?: string;
+    toolCallId?: string;
+    logLevel: 'debug' | 'info' | 'warn' | 'error';
+    source?: string;
+    message: string;
+    data?: Record<string, any>;
+  }): Promise<number> {
+    if (!this.enabled) return 0;
+
+    try {
+      return await opencodeIntegration.captureExecutionLog(log);
+    } catch (error) {
+      logger.error("failed to capture execution log", { error });
+      return 0;
+    }
+  }
+
+  async captureApiCall(apiCall: {
+    messageId?: string;
+    providerId: string;
+    modelId?: string;
+    endpoint?: string;
+    requestBody?: Record<string, any>;
+    responseBody?: Record<string, any>;
+    statusCode?: number;
+    latencyMs?: number;
+    cost?: number;
+    tokensInput?: number;
+    tokensOutput?: number;
+    errorMessage?: string;
+    errorCode?: string;
+    metadata?: Record<string, any>;
+  }): Promise<number> {
+    if (!this.enabled) return 0;
+
+    try {
+      return await opencodeIntegration.captureApiCall(apiCall);
+    } catch (error) {
+      logger.error("failed to capture api call", { error });
+      return 0;
+    }
+  }
+
+  async capturePermissionRequest(request: {
+    permissionType: string;
+    action: string;
+    pattern?: string;
+    toolName?: string;
+    inputData?: Record<string, any>;
+    status?: 'pending' | 'approved' | 'denied';
+    userResponse?: string;
+    responseMessage?: string;
+    respondedAt?: number;
+    metadata?: Record<string, any>;
+  }): Promise<string> {
+    if (!this.enabled) return '';
+
+    try {
+      return await opencodeIntegration.capturePermissionRequest(request);
+    } catch (error) {
+      logger.error("failed to capture permission request", { error });
+      return '';
+    }
+  }
+
+  async captureCostStatistic(stat: {
+    trajectoryId?: string;
+    providerId?: string;
+    modelId?: string;
+    costInput?: number;
+    costOutput?: number;
+    costCacheRead?: number;
+    costCacheWrite?: number;
+    costReasoning?: number;
+    totalCost?: number;
+    tokensInput?: number;
+    tokensOutput?: number;
+    tokensReasoning?: number;
+    tokensCacheRead?: number;
+    tokensCacheWrite?: number;
+    apiCalls?: number;
+    periodStart?: number;
+    periodEnd?: number;
+    metadata?: Record<string, any>;
+  }): Promise<number> {
+    if (!this.enabled) return 0;
+
+    try {
+      return await opencodeIntegration.captureCostStatistic(stat);
+    } catch (error) {
+      logger.error("failed to capture cost statistic", { error });
+      return 0;
+    }
   }
 
   disable(): void {
