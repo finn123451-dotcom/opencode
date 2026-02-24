@@ -167,7 +167,12 @@ export class TrajectoryCapture extends EventEmitter {
     agent?: string;
     variant?: string;
     systemPrompt?: string;
-    tokens?: number;
+    cost?: number;
+    tokensInput?: number;
+    tokensOutput?: number;
+    tokensReasoning?: number;
+    tokensCacheRead?: number;
+    tokensCacheWrite?: number;
   }): Promise<void> {
     if (!this.config.enabled || !this.currentSessionId) {
       logger.debug("skipping captureUserMessage", { enabled: this.config.enabled, sessionId: this.currentSessionId });
@@ -185,6 +190,12 @@ export class TrajectoryCapture extends EventEmitter {
       agent: metadata?.agent,
       variant: metadata?.variant,
       systemPrompt: metadata?.systemPrompt,
+      cost: metadata?.cost || 0,
+      tokensInput: metadata?.tokensInput || 0,
+      tokensOutput: metadata?.tokensOutput || 0,
+      tokensReasoning: metadata?.tokensReasoning || 0,
+      tokensCacheRead: metadata?.tokensCacheRead || 0,
+      tokensCacheWrite: metadata?.tokensCacheWrite || 0,
       timeCreated: Date.now(),
       stepOrder: this.messageBuffer.length,
     };
@@ -211,6 +222,8 @@ export class TrajectoryCapture extends EventEmitter {
     tokensInput?: number;
     tokensOutput?: number;
     tokensReasoning?: number;
+    tokensCacheRead?: number;
+    tokensCacheWrite?: number;
   }): Promise<void> {
     if (!this.config.enabled || !this.currentSessionId) {
       logger.debug("skipping captureAssistantMessage", { enabled: this.config.enabled, sessionId: this.currentSessionId });
@@ -228,10 +241,12 @@ export class TrajectoryCapture extends EventEmitter {
       agent: metadata?.agent,
       variant: metadata?.variant,
       finishReason: metadata?.finishReason,
-      cost: metadata?.cost,
-      tokensInput: metadata?.tokensInput,
-      tokensOutput: metadata?.tokensOutput,
-      tokensReasoning: metadata?.tokensReasoning,
+      cost: metadata?.cost || 0,
+      tokensInput: metadata?.tokensInput || 0,
+      tokensOutput: metadata?.tokensOutput || 0,
+      tokensReasoning: metadata?.tokensReasoning || 0,
+      tokensCacheRead: metadata?.tokensCacheRead || 0,
+      tokensCacheWrite: metadata?.tokensCacheWrite || 0,
       timeCreated: Date.now(),
       timeCompleted: Date.now(),
       stepOrder: this.messageBuffer.length,

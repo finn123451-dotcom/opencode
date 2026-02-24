@@ -535,23 +535,40 @@ export class TrajectoryStorage {
       }
     }
 
+    // Check if session exists
+    let sessionId = data.sessionId;
+    if (sessionId) {
+      try {
+        const checkResult = await this.pool.query(
+          'SELECT id FROM sessions WHERE id = $1',
+          [sessionId]
+        );
+        if (checkResult.rows.length === 0) {
+          sessionId = null;
+        }
+      } catch {
+        sessionId = null;
+      }
+    }
+
     const query = `
-      INSERT INTO reasoning_chains (id, message_id, content, model, time_start, time_end, provider_metadata, part_order, metadata)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO reasoning_chains (id, session_id, message_id, content, model, time_start, time_end, provider_metadata, part_order, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (id) DO UPDATE SET
-        content = $3,
-        message_id = COALESCE($2, reasoning_chains.message_id),
-        model = COALESCE($4, reasoning_chains.model),
-        time_start = COALESCE($5, reasoning_chains.time_start),
-        time_end = COALESCE($6, reasoning_chains.time_end),
-        provider_metadata = COALESCE($7, reasoning_chains.provider_metadata),
-        part_order = COALESCE($8, reasoning_chains.part_order),
-        metadata = COALESCE($9, reasoning_chains.metadata)::jsonb
+        content = $4,
+        message_id = COALESCE($3, reasoning_chains.message_id),
+        model = COALESCE($5, reasoning_chains.model),
+        time_start = COALESCE($6, reasoning_chains.time_start),
+        time_end = COALESCE($7, reasoning_chains.time_end),
+        provider_metadata = COALESCE($8, reasoning_chains.provider_metadata),
+        part_order = COALESCE($9, reasoning_chains.part_order),
+        metadata = COALESCE($10, reasoning_chains.metadata)::jsonb
       RETURNING id
     `;
 
     const result = await this.pool.query(query, [
       data.id,
+      sessionId,
       messageId,
       data.content,
       data.model || null,
@@ -603,38 +620,55 @@ export class TrajectoryStorage {
       }
     }
 
+    // Check if session exists
+    let sessionId = data.sessionId;
+    if (sessionId) {
+      try {
+        const checkResult = await this.pool.query(
+          'SELECT id FROM sessions WHERE id = $1',
+          [sessionId]
+        );
+        if (checkResult.rows.length === 0) {
+          sessionId = null;
+        }
+      } catch {
+        sessionId = null;
+      }
+    }
+
     const query = `
       INSERT INTO tool_calls (
-        id, message_id, call_id, tool_name, input, output, raw_output, truncated,
+        id, session_id, message_id, call_id, tool_name, input, output, raw_output, truncated,
         status, error_message, title, output_path,
         time_created, time_start, time_end, duration_ms, part_order, attachments, metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       ON CONFLICT (id) DO UPDATE SET
-        message_id = COALESCE($2, tool_calls.message_id),
-        call_id = $3,
-        tool_name = $4,
-        input = $5,
-        output = COALESCE($6, tool_calls.output),
-        raw_output = COALESCE($7, tool_calls.raw_output),
-        truncated = COALESCE($8, tool_calls.truncated),
-        status = COALESCE($9, tool_calls.status),
-        error_message = COALESCE($10, tool_calls.error_message),
-        title = COALESCE($11, tool_calls.title),
-        output_path = COALESCE($12, tool_calls.output_path),
-        time_created = $13,
-        time_start = COALESCE($14, tool_calls.time_start),
-        time_end = COALESCE($15, tool_calls.time_end),
-        duration_ms = COALESCE($16, tool_calls.duration_ms),
-        part_order = COALESCE($17, tool_calls.part_order),
-        attachments = COALESCE($18, tool_calls.attachments),
-        metadata = COALESCE($19, tool_calls.metadata)::jsonb,
+        message_id = COALESCE($3, tool_calls.message_id),
+        call_id = $4,
+        tool_name = $5,
+        input = $6,
+        output = COALESCE($7, tool_calls.output),
+        raw_output = COALESCE($8, tool_calls.raw_output),
+        truncated = COALESCE($9, tool_calls.truncated),
+        status = COALESCE($10, tool_calls.status),
+        error_message = COALESCE($11, tool_calls.error_message),
+        title = COALESCE($12, tool_calls.title),
+        output_path = COALESCE($13, tool_calls.output_path),
+        time_created = $14,
+        time_start = COALESCE($15, tool_calls.time_start),
+        time_end = COALESCE($16, tool_calls.time_end),
+        duration_ms = COALESCE($17, tool_calls.duration_ms),
+        part_order = COALESCE($18, tool_calls.part_order),
+        attachments = COALESCE($19, tool_calls.attachments),
+        metadata = COALESCE($20, tool_calls.metadata)::jsonb,
         updated_at = NOW()
       RETURNING id
     `;
 
     const result = await this.pool.query(query, [
       data.id,
+      sessionId,
       messageId,
       data.callId,
       data.toolName,
