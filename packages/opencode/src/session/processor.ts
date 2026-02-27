@@ -17,6 +17,8 @@ import { PermissionNext } from "@/permission/next"
 import { Question } from "@/question"
 import { sessionTrajectoryTracker } from "./trajectory-integration"
 
+const logger = Log.create({ service: "session-processor" })
+
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
   const log = Log.create({ service: "session.processor" })
@@ -50,11 +52,9 @@ export namespace SessionProcessor {
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
 
         if (sessionTrajectoryTracker.isEnabled()) {
-          await sessionTrajectoryTracker.startSession(
-            input.sessionID,
-            input.assistantMessage.id,
-            { directory: streamInput.sessionID }
-          )
+          await sessionTrajectoryTracker.startSessionIfNeeded(input.sessionID, input.assistantMessage.id, {
+            directory: streamInput.sessionID,
+          })
         }
 
         while (true) {
@@ -89,7 +89,7 @@ export namespace SessionProcessor {
                     await sessionTrajectoryTracker.handleReasoningStart(
                       input.assistantMessage.id,
                       value.id,
-                      value.providerMetadata
+                      value.providerMetadata,
                     )
                   }
                   break
@@ -118,10 +118,7 @@ export namespace SessionProcessor {
                     if (value.providerMetadata) part.metadata = value.providerMetadata
                     await Session.updatePart(part)
                     if (sessionTrajectoryTracker.isEnabled()) {
-                      await sessionTrajectoryTracker.handleReasoningEnd(
-                        input.assistantMessage.id,
-                        value.id
-                      )
+                      await sessionTrajectoryTracker.handleReasoningEnd(input.assistantMessage.id, value.id)
                     }
                     delete reasoningMap[value.id]
                   }
@@ -173,7 +170,7 @@ export namespace SessionProcessor {
                         value.toolCallId,
                         value.toolName,
                         value.input,
-                        value.toolCallId
+                        value.toolCallId,
                       )
                     }
 
@@ -230,8 +227,23 @@ export namespace SessionProcessor {
                         input.assistantMessage.id,
                         value.toolCallId,
                         value.output.output,
-                        "completed"
+                        "completed",
                       )
+                      // Capture tool attachments
+                      if (value.output.attachments?.length) {
+                        for (const attachment of value.output.attachments) {
+                          await sessionTrajectoryTracker.captureToolAttachment({
+                            messageId: input.assistantMessage.id,
+                            toolCallId: value.toolCallId,
+                            filename: attachment.filename,
+                            mime: attachment.mime,
+                            url: attachment.url,
+                            sourceType: attachment.source?.type,
+                            sourcePath: attachment.source?.path,
+                            sourceRange: attachment.source?.range,
+                          })
+                        }
+                      }
                     }
 
                     delete toolcalls[value.toolCallId]
@@ -259,7 +271,7 @@ export namespace SessionProcessor {
                       await sessionTrajectoryTracker.handleToolCallError(
                         input.assistantMessage.id,
                         value.toolCallId,
-                        (value.error as any).toString()
+                        (value.error as any).toString(),
                       )
                     }
 
@@ -278,7 +290,7 @@ export namespace SessionProcessor {
                     await sessionTrajectoryTracker.handleError(
                       input.assistantMessage.id,
                       value.error?.message || String(value.error),
-                      value.error?.stack
+                      value.error?.stack,
                     )
                   }
                   throw value.error
@@ -295,15 +307,15 @@ export namespace SessionProcessor {
                   if (sessionTrajectoryTracker.isEnabled()) {
                     currentStepId = await sessionTrajectoryTracker.captureStepStart(
                       input.assistantMessage.id,
-                      value.stepId
+                      value.stepId,
                     )
                     await sessionTrajectoryTracker.captureSnapshot({
                       messageId: input.assistantMessage.id,
                       stepId: value.stepId,
-                      snapshotHash: snapshot?.hash || '',
+                      snapshotHash: snapshot?.hash || "",
                       workingDirectory: input.assistantMessage.path.cwd,
                       fileCount: snapshot?.files?.length || 0,
-                      fileList: snapshot?.files?.map(f => f.path) || [],
+                      fileList: snapshot?.files?.map((f) => f.path) || [],
                     })
                   }
                   break
@@ -331,63 +343,99 @@ export namespace SessionProcessor {
                   // Capture assistant message with complete metadata
                   if (sessionTrajectoryTracker.isEnabled()) {
                     const parts = await MessageV2.parts(input.assistantMessage.id)
-                    await sessionTrajectoryTracker.captureAssistantMessage(
-                      input.assistantMessage.id,
+                    // Get text content from parts
+                    const textContent =
                       parts
-                        .filter(p => p.type === "text")
-                        .map(p => (p as any).text)
-                        .join("\n"),
-                      {
-                        model: input.model.id,
-                        providerId: input.model.provider,
-                        finishReason: value.finishReason,
-                        cost: usage.cost,
-                        tokensInput: usage.tokens.input,
-                        tokensOutput: usage.tokens.output,
-                        tokensReasoning: usage.tokens.reasoning,
-                      }
-                    )
+                        .filter((p) => p.type === "text")
+                        .map((p) => (p as any).text || (p as any).content || "")
+                        .join("\n") ||
+                      input.assistantMessage.summary?.body ||
+                      ""
+
+                    logger.info("capturing assistant message details", {
+                      messageId: input.assistantMessage.id,
+                      partsCount: parts.length,
+                      textContentLength: textContent.length,
+                    })
+
+                    await sessionTrajectoryTracker.captureAssistantMessage(input.assistantMessage.id, textContent, {
+                      agent: input.assistantMessage.agent,
+                      parentId: input.assistantMessage.parentID,
+                      model: input.model.id,
+                      providerId: input.model.providerID,
+                      finishReason: value.finishReason,
+                      cost: usage.cost,
+                      tokensInput: usage.tokens.input,
+                      tokensOutput: usage.tokens.output,
+                      tokensReasoning: usage.tokens.reasoning,
+                    })
+                    // Capture message parts
+                    for (const part of parts) {
+                      await sessionTrajectoryTracker.captureMessagePart(input.assistantMessage.id, {
+                        partType: part.type,
+                        content: (part as any).text || (part as any).content || "",
+                        partOrder: part.index,
+                        metadata: {
+                          tool: (part as any).tool,
+                          input: (part as any).input,
+                          status: (part as any).state?.status,
+                        },
+                      })
+                    }
+                    // Capture cost statistics
+                    await sessionTrajectoryTracker.captureCostStatistic({
+                      providerId: input.model.provider,
+                      modelId: input.model.id,
+                      costInput: usage.costInput,
+                      costOutput: usage.costOutput,
+                      costReasoning: usage.costReasoning,
+                      totalCost: usage.cost,
+                      tokensInput: usage.tokens.input,
+                      tokensOutput: usage.tokens.output,
+                      tokensReasoning: usage.tokens.reasoning,
+                      tokensCacheRead: usage.tokens.cache.read,
+                      tokensCacheWrite: usage.tokens.cache.write,
+                      apiCalls: 1,
+                    })
                   }
                   if (sessionTrajectoryTracker.isEnabled() && currentStepId) {
-                    await sessionTrajectoryTracker.handleStepEnd(
-                      input.assistantMessage.id,
-                      currentStepId,
-                      {
-                        reason: value.finishReason,
-                        tokensInput: usage.tokens.input,
-                        tokensOutput: usage.tokens.output,
-                        cost: usage.cost,
-                      }
-                    )
-                    currentStepId = undefined
-                  }
-                  if (snapshot) {
-                    const patch = await Snapshot.patch(snapshot)
-                    if (patch.files.length) {
-                      await Session.updatePart({
-                        id: Identifier.ascending("part"),
-                        messageID: input.assistantMessage.id,
-                        sessionID: input.sessionID,
-                        type: "patch",
-                        hash: patch.hash,
-                        files: patch.files,
-                      })
-                      if (sessionTrajectoryTracker.isEnabled()) {
-                        for (const file of patch.files) {
-                          await sessionTrajectoryTracker.capturePatch({
-                            messageId: input.assistantMessage.id,
-                            stepId: currentStepId,
-                            patchHash: patch.hash,
-                            filePath: file.path,
-                            fileDiff: file.content,
-                            additions: file.additions,
-                            deletions: file.deletions,
-                            diffStats: { additions: file.additions, deletions: file.deletions },
-                          })
+                    // First capture snapshot if exists
+                    if (snapshot) {
+                      const patch = await Snapshot.patch(snapshot)
+                      if (patch.files.length) {
+                        await Session.updatePart({
+                          id: Identifier.ascending("part"),
+                          messageID: input.assistantMessage.id,
+                          sessionID: input.sessionID,
+                          type: "patch",
+                          hash: patch.hash,
+                          files: patch.files,
+                        })
+                        if (sessionTrajectoryTracker.isEnabled()) {
+                          for (const file of patch.files) {
+                            await sessionTrajectoryTracker.capturePatch({
+                              messageId: input.assistantMessage.id,
+                              stepId: currentStepId,
+                              patchHash: patch.hash,
+                              filePath: file.path,
+                              fileDiff: file.content,
+                              additions: file.additions,
+                              deletions: file.deletions,
+                              diffStats: { additions: file.additions, deletions: file.deletions },
+                            })
+                          }
                         }
                       }
+                      snapshot = undefined
                     }
-                    snapshot = undefined
+                    // Now call handleStepEnd with snapshot_id and patch_id already captured
+                    await sessionTrajectoryTracker.handleStepEnd(input.assistantMessage.id, currentStepId, {
+                      reason: value.finishReason,
+                      tokensInput: usage.tokens.input,
+                      tokensOutput: usage.tokens.output,
+                      cost: usage.cost,
+                    })
+                    currentStepId = undefined
                   }
                   SessionSummary.summarize({
                     sessionID: input.sessionID,

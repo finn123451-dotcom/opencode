@@ -39,6 +39,15 @@ export namespace LLM {
     small?: boolean
     tools: Record<string, Tool>
     retries?: number
+    // Callbacks for trajectory capture at the source
+    onSystemPrompt?: (systemPrompt: string) => void
+    onUserMessage?: (messages: ModelMessage[]) => void
+    onReasoningStart?: (reasoningId: string, metadata?: any) => void
+    onReasoningDelta?: (reasoningId: string, text: string) => void
+    onReasoningEnd?: (reasoningId: string, content: string) => void
+    onToolCallStart?: (toolCallId: string, toolName: string, input: any) => void
+    onToolCallDelta?: (toolCallId: string, input: any) => void
+    onToolCallResult?: (toolCallId: string, result: string) => void
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
@@ -94,6 +103,32 @@ export namespace LLM {
       const rest = system.slice(1)
       system.length = 0
       system.push(header, rest.join("\n"))
+    }
+
+    // Capture system prompt at source
+    if (input.onSystemPrompt && system[0]) {
+      input.onSystemPrompt(system[0])
+    }
+
+    // Capture messages being sent to LLM
+    const messagesToLLM = [
+      ...(isCodex
+        ? [
+            {
+              role: "user",
+              content: system.join("\n\n"),
+            } as ModelMessage,
+          ]
+        : system.map(
+            (x): ModelMessage => ({
+              role: "system",
+              content: x,
+            }),
+          )),
+      ...input.messages,
+    ]
+    if (input.onUserMessage) {
+      input.onUserMessage(messagesToLLM)
     }
 
     const variant =

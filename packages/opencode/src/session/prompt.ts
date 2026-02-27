@@ -624,6 +624,16 @@ export namespace SessionPrompt {
         ],
         tools,
         model,
+        onSystemPrompt: sessionTrajectoryTracker.isEnabled()
+          ? (systemPrompt: string) => {
+              sessionTrajectoryTracker.captureSystemPrompt(sessionID, systemPrompt)
+            }
+          : undefined,
+        onUserMessage: sessionTrajectoryTracker.isEnabled()
+          ? (messages: any[]) => {
+              sessionTrajectoryTracker.captureMessagesToLLM(sessionID, messages)
+            }
+          : undefined,
       })
       if (result === "stop") {
         if (sessionTrajectoryTracker.isEnabled()) {
@@ -638,6 +648,12 @@ export namespace SessionPrompt {
           model: lastUser.model,
           auto: true,
         })
+        if (sessionTrajectoryTracker.isEnabled()) {
+          await sessionTrajectoryTracker.captureSessionCompaction({
+            model: lastUser.model?.id,
+            providerId: lastUser.model?.providerID,
+          })
+        }
       }
       continue
     }
@@ -707,11 +723,11 @@ export namespace SessionPrompt {
         if (sessionTrajectoryTracker.isEnabled()) {
           await sessionTrajectoryTracker.capturePermissionRequest({
             permissionType: req.permission,
-            action: 'ask',
+            action: "ask",
             pattern: req.patterns?.[0],
             toolName: options.toolCallId,
             inputData: req.metadata,
-            status: 'pending',
+            status: "pending",
           })
         }
       },
@@ -1215,13 +1231,61 @@ export namespace SessionPrompt {
     }
 
     if (sessionTrajectoryTracker.isEnabled()) {
-      const content = parts
-        .filter(p => p.type === "text")
-        .map(p => (p as any).text)
+      // Start session if not already started (needed for first user message)
+      const sessionStarted = await sessionTrajectoryTracker.startSessionIfNeeded(input.sessionID, info.id, {
+        directory: input.sessionID,
+      })
+
+      // Get text content from parts, but also capture other part types
+      const textContent = parts
+        .filter((p) => p.type === "text")
+        .map((p) => (p as any).text)
         .join("\n")
 
-      if (content) {
-        await sessionTrajectoryTracker.captureUserMessage(info.id, content)
+      // Capture user message with full content including all part types
+      const fullContent =
+        textContent ||
+        parts
+          .map((p) => {
+            if (p.type === "file") return `[File: ${(p as any).filename || "unknown"}]`
+            if (p.type === "agent") return `[Agent: ${(p as any).name}]`
+            if (p.type === "subtask") return `[Subtask: ${(p as any).prompt?.substring(0, 50)}]`
+            return ""
+          })
+          .join("\n")
+
+      logger.info("capturing user message details", {
+        messageId: info.id,
+        partsCount: parts.length,
+        textContentLength: textContent.length,
+        fullContentLength: fullContent.length,
+        hasSystemPrompt: !!info.system,
+      })
+
+      // Always capture user message, even if content is empty
+      try {
+        await sessionTrajectoryTracker.captureUserMessage(info.id, fullContent, {
+          systemPrompt: info.system || undefined,
+          agent: info.agent,
+          model: info.model?.modelID,
+          providerId: info.model?.providerID,
+        })
+      } catch (err) {
+        logger.error("error capturing user message", { error: err })
+      }
+
+      // Capture message parts
+      for (const part of parts) {
+        await sessionTrajectoryTracker.captureMessagePart(info.id, {
+          partType: part.type,
+          content: (part as any).text || (part as any).content || "",
+          partOrder: part.index,
+          metadata: {
+            tool: (part as any).tool,
+            input: (part as any).input,
+            status: (part as any).state?.status,
+          },
+        })
       }
     }
 
