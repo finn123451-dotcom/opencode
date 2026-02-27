@@ -486,12 +486,25 @@ export class TrajectoryStorage {
 
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i]
+      
       // Try to find corresponding message in messages table
-      let messageId = msg.messageId || null
-      if (!messageId && msg.id) {
-        const msgCheck = await this.pool.query("SELECT id FROM messages WHERE id = $1", [msg.id])
+      let messageId = msg.messageId || msg.id || null
+      let model = msg.model || null
+      let providerId = msg.providerId || msg.provider_id || null
+      let toolName = msg.toolName || msg.tool_name || null
+      let toolCallId = msg.toolCallId || msg.tool_call_id || null
+      let toolCalls = msg.toolCalls || msg.tool_calls || null
+
+      // If no messageId, try to find by content and role
+      if (!messageId && msg.content) {
+        const msgCheck = await this.pool.query(
+          "SELECT id, model, provider_id FROM messages WHERE session_id = $1 AND role = $2 AND content = $3 ORDER BY time_created DESC LIMIT 1",
+          [sessionId, msg.role || 'user', typeof msg.content === 'string' ? msg.content.substring(0, 100) : '']
+        )
         if (msgCheck.rows.length > 0) {
-          messageId = msg.id
+          messageId = msgCheck.rows[0].id
+          model = model || msgCheck.rows[0].model
+          providerId = providerId || msgCheck.rows[0].provider_id
         }
       }
 
@@ -502,6 +515,21 @@ export class TrajectoryStorage {
       `
       await this.pool.query(query, [
         msg.id || uuidv4(),
+        sessionId,
+        messageId,
+        msg.role || "user",
+        typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content),
+        msg.name || null,
+        toolCalls ? JSON.stringify(toolCalls) : null,
+        toolCallId,
+        toolName,
+        model,
+        providerId,
+        msg.timeCreated || Date.now(),
+        JSON.stringify(msg.metadata || {}),
+      ])
+    }
+  }
         sessionId,
         messageId,
         msg.role || "user",
@@ -612,38 +640,16 @@ export class TrajectoryStorage {
   }
 
   async createReasoningChain(data: ReasoningChainData): Promise<string> {
-    // Always verify message_id exists, if not set to NULL due to foreign key constraint
-    let messageId = data.messageId
-    if (messageId) {
-      try {
-        const checkResult = await this.pool.query("SELECT id FROM messages WHERE id = $1", [messageId])
-        if (checkResult.rows.length === 0) {
-          messageId = null
-        }
-      } catch {
-        messageId = null
-      }
-    }
-
-    // Always verify session_id exists
-    let sessionId = data.sessionId
-    if (sessionId) {
-      try {
-        const checkResult = await this.pool.query("SELECT id FROM sessions WHERE id = $1", [sessionId])
-        if (checkResult.rows.length === 0) {
-          sessionId = null
-        }
-      } catch {
-        sessionId = null
-      }
-    }
+    // Skip validation, let the foreign key constraint handle nullification
+    // This ensures we don't lose data even if the message doesn't exist yet
+    const sessionId = data.sessionId
+    const messageId = data.messageId
 
     const query = `
       INSERT INTO reasoning_chains (id, session_id, message_id, content, model, time_start, time_end, provider_metadata, part_order, metadata)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (id) DO UPDATE SET
         content = $4,
-        message_id = CASE WHEN $3 IS NOT NULL THEN $3 ELSE reasoning_chains.message_id END,
         model = COALESCE($5, reasoning_chains.model),
         time_start = COALESCE($6, reasoning_chains.time_start),
         time_end = COALESCE($7, reasoning_chains.time_end),
@@ -714,31 +720,9 @@ export class TrajectoryStorage {
   }
 
   async createToolCall(data: ToolCallData): Promise<string> {
-    // Check if message exists, if not set message_id to NULL due to foreign key constraint
-    let messageId = data.messageId
-    if (messageId) {
-      try {
-        const checkResult = await this.pool.query("SELECT id FROM messages WHERE id = $1", [messageId])
-        if (checkResult.rows.length === 0) {
-          messageId = null
-        }
-      } catch {
-        messageId = null
-      }
-    }
-
-    // Check if session exists
-    let sessionId = data.sessionId
-    if (sessionId) {
-      try {
-        const checkResult = await this.pool.query("SELECT id FROM sessions WHERE id = $1", [sessionId])
-        if (checkResult.rows.length === 0) {
-          sessionId = null
-        }
-      } catch {
-        sessionId = null
-      }
-    }
+    // Skip validation, let the foreign key constraint handle nullification
+    const sessionId = data.sessionId
+    const messageId = data.messageId
 
     const query = `
       INSERT INTO tool_calls (
@@ -845,18 +829,9 @@ export class TrajectoryStorage {
   }
 
   async createStep(data: StepData): Promise<string> {
-    // Check if message exists, if not set message_id to NULL due to foreign key constraint
-    let messageId = data.messageId
-    if (messageId) {
-      try {
-        const checkResult = await this.pool.query("SELECT id FROM messages WHERE id = $1", [messageId])
-        if (checkResult.rows.length === 0) {
-          messageId = null
-        }
-      } catch {
-        messageId = null
-      }
-    }
+    // Skip validation, let the foreign key constraint handle nullification
+    const sessionId = data.sessionId
+    const messageId = data.messageId
 
     const query = `
       INSERT INTO steps (
@@ -1473,18 +1448,9 @@ export class TrajectoryStorage {
   }
 
   async createSnapshot(data: SnapshotData): Promise<string> {
-    // Check if message exists, if not set message_id to NULL due to foreign key constraint
-    let messageId = data.messageId
-    if (messageId) {
-      try {
-        const checkResult = await this.pool.query("SELECT id FROM messages WHERE id = $1", [messageId])
-        if (checkResult.rows.length === 0) {
-          messageId = null
-        }
-      } catch {
-        messageId = null
-      }
-    }
+    // Skip validation, let the foreign key constraint handle nullification
+    const sessionId = data.sessionId
+    const messageId = data.messageId
 
     const query = `
       INSERT INTO snapshots (id, session_id, message_id, step_id, snapshot_hash, working_directory, file_count, file_list, time_created, snapshot_order, metadata)
@@ -1596,17 +1562,9 @@ export class TrajectoryStorage {
   }
 
   async createToolAttachment(data: ToolAttachmentData): Promise<string> {
-    let messageId = data.messageId
-    if (messageId) {
-      try {
-        const checkResult = await this.pool.query("SELECT id FROM messages WHERE id = $1", [messageId])
-        if (checkResult.rows.length === 0) {
-          messageId = null
-        }
-      } catch {
-        messageId = null
-      }
-    }
+    // Skip validation, let the foreign key constraint handle nullification
+    const sessionId = data.sessionId
+    const messageId = data.messageId
 
     const query = `
       INSERT INTO tool_attachments (id, session_id, message_id, tool_call_id, filename, mime, url, source_type, source_path, source_range, time_created)
