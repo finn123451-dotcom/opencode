@@ -131,7 +131,7 @@ CREATE INDEX idx_messages_finish_reason ON messages(finish_reason);
 CREATE TABLE message_parts (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE SET NULL,
-    message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
+    message_id VARCHAR(255),
     part_type VARCHAR(50) NOT NULL,
     content TEXT,
     part_order INTEGER NOT NULL,
@@ -149,7 +149,7 @@ CREATE INDEX idx_message_parts_type ON message_parts(part_type);
 CREATE TABLE reasoning_chains (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE SET NULL,
-    message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
+    message_id VARCHAR(255),
     content TEXT NOT NULL,
     model VARCHAR(255),
     time_start BIGINT NOT NULL,
@@ -173,7 +173,7 @@ CREATE INDEX idx_reasoning_part_order ON reasoning_chains(part_order);
 CREATE TABLE tool_calls (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE SET NULL,
-    message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
+    message_id VARCHAR(255),
     call_id VARCHAR(255) NOT NULL,
     tool_name VARCHAR(255) NOT NULL,
     input JSONB NOT NULL,
@@ -210,7 +210,7 @@ CREATE INDEX idx_tool_calls_part_order ON tool_calls(part_order);
 CREATE TABLE tool_attachments (
     id VARCHAR(255) PRIMARY KEY,
     tool_call_id VARCHAR(255) REFERENCES tool_calls(id) ON DELETE SET NULL,
-    message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
+    message_id VARCHAR(255),
     filename VARCHAR(500),
     mime VARCHAR(255),
     url TEXT,
@@ -232,7 +232,7 @@ CREATE INDEX idx_tool_attachments_filename ON tool_attachments(filename);
 CREATE TABLE snapshots (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE CASCADE,
-    message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
+    message_id VARCHAR(255),
     step_id VARCHAR(255),
     snapshot_hash VARCHAR(255) NOT NULL,
     working_directory VARCHAR(500),
@@ -256,7 +256,7 @@ CREATE INDEX idx_snapshots_order ON snapshots(snapshot_order);
 CREATE TABLE patches (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE CASCADE,
-    message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
+    message_id VARCHAR(255),
     step_id VARCHAR(255),
     patch_hash VARCHAR(255) NOT NULL,
     file_path TEXT NOT NULL,
@@ -285,7 +285,7 @@ CREATE INDEX idx_patches_order ON patches(patch_order);
 CREATE TABLE steps (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE CASCADE,
-    message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
+    message_id VARCHAR(255),
     step_type VARCHAR(100) NOT NULL,
     step_order INTEGER NOT NULL,
     content TEXT,
@@ -323,7 +323,7 @@ CREATE INDEX idx_steps_group ON steps(step_group);
 CREATE TABLE subtasks (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE CASCADE,
-    parent_message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
+    parent_message_id VARCHAR(255),
     prompt TEXT NOT NULL,
     description TEXT,
     agent VARCHAR(255) NOT NULL,
@@ -374,7 +374,7 @@ CREATE INDEX idx_session_compactions_auto ON session_compactions(auto);
 CREATE TABLE retries (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE CASCADE,
-    message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
+    message_id VARCHAR(255),
     attempt_number INTEGER NOT NULL,
     error_name VARCHAR(100),
     error_message TEXT,
@@ -561,7 +561,7 @@ CREATE INDEX idx_memories_time_created ON memories(time_created DESC);
 CREATE TABLE llm_messages (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE CASCADE,
-    message_id VARCHAR(255) REFERENCES messages(id) ON DELETE SET NULL,
+    message_id VARCHAR(255),
     role VARCHAR(50) NOT NULL,
     content TEXT,
     name VARCHAR(255),

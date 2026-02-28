@@ -373,7 +373,7 @@ export interface CompleteTrajectoryData {
   subtasks: SubtaskData[]
   compactions: SessionCompactionData[]
   retries: RetryData[]
-  trajectory: TrajectoryData
+  trajectory?: TrajectoryData
 }
 
 export class TrajectoryStorage {
@@ -486,7 +486,7 @@ export class TrajectoryStorage {
 
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i]
-      
+
       // Try to find corresponding message in messages table
       let messageId = msg.messageId || msg.id || null
       let model = msg.model || null
@@ -499,7 +499,7 @@ export class TrajectoryStorage {
       if (!messageId && msg.content) {
         const msgCheck = await this.pool.query(
           "SELECT id, model, provider_id FROM messages WHERE session_id = $1 AND role = $2 AND content = $3 ORDER BY time_created DESC LIMIT 1",
-          [sessionId, msg.role || 'user', typeof msg.content === 'string' ? msg.content.substring(0, 100) : '']
+          [sessionId, msg.role || "user", typeof msg.content === "string" ? msg.content.substring(0, 100) : ""],
         )
         if (msgCheck.rows.length > 0) {
           messageId = msgCheck.rows[0].id
@@ -525,21 +525,6 @@ export class TrajectoryStorage {
         toolName,
         model,
         providerId,
-        msg.timeCreated || Date.now(),
-        JSON.stringify(msg.metadata || {}),
-      ])
-    }
-  }
-        sessionId,
-        messageId,
-        msg.role || "user",
-        typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content),
-        msg.name || null,
-        JSON.stringify(msg.tool_calls || null),
-        msg.tool_call_id || null,
-        msg.tool_name || null,
-        msg.model || null,
-        msg.provider_id || null,
         msg.timeCreated || Date.now(),
         JSON.stringify(msg.metadata || {}),
       ])
@@ -973,137 +958,8 @@ export class TrajectoryStorage {
   }
 
   async createTrajectory(data: TrajectoryData): Promise<string> {
-    // Check if session exists, if not set session_id to NULL
-    let sessionId = data.sessionId
-    if (sessionId) {
-      const checkResult = await this.pool.query("SELECT id FROM sessions WHERE id = $1", [sessionId])
-      if (checkResult.rows.length === 0) {
-        sessionId = null
-      }
-    }
-
-    const query = `
-      INSERT INTO trajectories (
-        id, session_id, root_message_id, model, provider_id, agent, title, description,
-        status, total_steps, total_tool_calls, total_subtasks, total_compactions,
-        total_duration_ms, total_cost,
-        total_tokens_input, total_tokens_output, total_tokens_reasoning, total_tokens_cache_read, total_tokens_cache_write,
-        total_file_reads, total_file_writes, total_patches, total_snapshots,
-        time_created, time_completed, duration_ms, quality_score, efficiency_score,
-        metadata
-      )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
-      ON CONFLICT (id) DO UPDATE SET
-        session_id = COALESCE($2, trajectories.session_id),
-        model = COALESCE($4, trajectories.model),
-        provider_id = COALESCE($5, trajectories.provider_id),
-        agent = COALESCE($6, trajectories.agent),
-        title = COALESCE($7, trajectories.title),
-        description = COALESCE($8, trajectories.description),
-        status = COALESCE($9, trajectories.status),
-        total_steps = COALESCE($10, trajectories.total_steps),
-        total_tool_calls = COALESCE($11, trajectories.total_tool_calls),
-        total_subtasks = COALESCE($12, trajectories.total_subtasks),
-        total_compactions = COALESCE($13, trajectories.total_compactions),
-        total_duration_ms = COALESCE($14, trajectories.total_duration_ms),
-        total_cost = COALESCE($15, trajectories.total_cost),
-        total_tokens_input = COALESCE($16, trajectories.total_tokens_input),
-        total_tokens_output = COALESCE($17, trajectories.total_tokens_output),
-        total_tokens_reasoning = COALESCE($18, trajectories.total_tokens_reasoning),
-        total_tokens_cache_read = COALESCE($19, trajectories.total_tokens_cache_read),
-        total_tokens_cache_write = COALESCE($20, trajectories.total_tokens_cache_write),
-        total_file_reads = COALESCE($21, trajectories.total_file_reads),
-        total_file_writes = COALESCE($22, trajectories.total_file_writes),
-        total_patches = COALESCE($23, trajectories.total_patches),
-        total_snapshots = COALESCE($24, trajectories.total_snapshots),
-        time_completed = COALESCE($26, trajectories.time_completed),
-        duration_ms = COALESCE($27, trajectories.duration_ms),
-        quality_score = COALESCE($28, trajectories.quality_score),
-        efficiency_score = COALESCE($29, trajectories.efficiency_score),
-        metadata = COALESCE($30, trajectories.metadata)::jsonb,
-        updated_at = NOW()
-      RETURNING id
-    `
-
-    const result = await this.pool.query(query, [
-      data.id,
-      sessionId,
-      data.rootMessageId || null,
-      data.model || null,
-      data.providerId || null,
-      data.agent || null,
-      data.title || null,
-      data.description || null,
-      data.status || "active",
-      data.totalSteps || 0,
-      data.totalToolCalls || 0,
-      data.totalSubtasks || 0,
-      data.totalCompactions || 0,
-      data.totalDurationMs || null,
-      data.totalCost || 0,
-      data.totalTokensInput || 0,
-      data.totalTokensOutput || 0,
-      data.totalTokensReasoning || 0,
-      data.totalTokensCacheRead || 0,
-      data.totalTokensCacheWrite || 0,
-      data.totalFileReads || 0,
-      data.totalFileWrites || 0,
-      data.totalPatches || 0,
-      data.totalSnapshots || 0,
-      data.timeCreated,
-      data.timeCompleted || null,
-      data.durationMs || null,
-      data.qualityScore || null,
-      data.efficiencyScore || null,
-      JSON.stringify(data.metadata || {}),
-    ])
-
-    return result.rows[0].id
-  }
-
-  async updateTrajectory(id: string, updates: Partial<TrajectoryData>): Promise<void> {
-    const setClauses: string[] = []
-    const values: any[] = []
-    let paramIndex = 1
-
-    if (updates.status !== undefined) {
-      setClauses.push(`status = $${paramIndex++}`)
-      values.push(updates.status)
-      if (updates.status === "completed" || updates.status === "failed") {
-        setClauses.push(`time_completed = $${paramIndex++}`)
-        values.push(Date.now())
-        setClauses.push(`completed_at = NOW()`)
-      }
-    }
-    if (updates.totalSteps !== undefined) {
-      setClauses.push(`total_steps = $${paramIndex++}`)
-      values.push(updates.totalSteps)
-    }
-    if (updates.totalToolCalls !== undefined) {
-      setClauses.push(`total_tool_calls = $${paramIndex++}`)
-      values.push(updates.totalToolCalls)
-    }
-    if (updates.totalDurationMs !== undefined) {
-      setClauses.push(`total_duration_ms = $${paramIndex++}`)
-      values.push(updates.totalDurationMs)
-    }
-    if (updates.totalCost !== undefined) {
-      setClauses.push(`total_cost = $${paramIndex++}`)
-      values.push(updates.totalCost)
-    }
-    if (updates.totalTokensInput !== undefined) {
-      setClauses.push(`total_tokens_input = $${paramIndex++}`)
-      values.push(updates.totalTokensInput)
-    }
-    if (updates.totalTokensOutput !== undefined) {
-      setClauses.push(`total_tokens_output = $${paramIndex++}`)
-      values.push(updates.totalTokensOutput)
-    }
-
-    if (setClauses.length === 0) return
-
-    values.push(id)
-    await this.pool.query(`UPDATE sessions SET ${setClauses.join(", ")} WHERE id = $${paramIndex}`, values)
+    // trajectories table removed - no-op
+    return data.id || ""
   }
 
   async getSessionComplete(sessionId: string): Promise<any> {
@@ -1122,29 +978,11 @@ export class TrajectoryStorage {
 
     const [messagesResult, reasoningResult, toolCallsResult, stepsResult] = await Promise.all([
       this.pool.query("SELECT * FROM messages WHERE session_id = $1 ORDER BY time_created", [sessionId]),
-      this.pool.query(
-        `
-        SELECT rc.* FROM reasoning_chains rc
-        JOIN messages m ON rc.message_id = m.id
-        WHERE m.session_id = $1 ORDER BY rc.time_start
-      `,
-        [sessionId],
-      ),
-      this.pool.query(
-        `
-        SELECT tc.* FROM tool_calls tc
-        JOIN messages m ON tc.message_id = m.id
-        WHERE m.session_id = $1 ORDER BY tc.time_created
-      `,
-        [sessionId],
-      ),
-      this.pool.query(
-        `
-        SELECT s.* FROM steps s
-        WHERE s.session_id = $1 ORDER BY s.step_order
-      `,
-        [sessionId],
-      ),
+      this.pool.query(`SELECT rc.* FROM reasoning_chains rc WHERE rc.session_id = $1 ORDER BY rc.time_start`, [
+        sessionId,
+      ]),
+      this.pool.query(`SELECT tc.* FROM tool_calls tc WHERE tc.session_id = $1 ORDER BY tc.time_created`, [sessionId]),
+      this.pool.query(`SELECT s.* FROM steps s WHERE s.session_id = $1 ORDER BY s.step_order`, [sessionId]),
     ])
 
     return {
@@ -1158,41 +996,45 @@ export class TrajectoryStorage {
   }
 
   async storeCompleteTrajectory(data: CompleteTrajectoryData): Promise<string> {
-    return transaction(async (client) => {
-      await client.query("BEGIN")
+    const sessionId = data.session?.id || ""
 
-      try {
-        await this.createSession(data.session)
+    // Update session with trajectory data
+    if (sessionId) {
+      await this.updateSessionSummary(sessionId, {
+        title: data.trajectory?.title,
+        description: data.trajectory?.description,
+        totalSteps: data.steps?.length || 0,
+        totalToolCalls: data.toolCalls?.length || 0,
+        totalDurationMs: data.trajectory?.totalDurationMs,
+      })
+    }
 
-        for (const message of data.messages) {
-          await this.createMessage(message)
-        }
+    // Store messages
+    for (const message of data.messages || []) {
+      await this.createMessage(message)
+    }
 
-        for (const part of data.parts || []) {
-          await this.createMessagePart(part)
-        }
+    // Store message parts
+    for (const part of data.parts || []) {
+      await this.createMessagePart(part)
+    }
 
-        for (const reasoning of data.reasoningChains) {
-          await this.createReasoningChain(reasoning)
-        }
+    // Store reasoning chains
+    for (const reasoning of data.reasoningChains || []) {
+      await this.createReasoningChain(reasoning)
+    }
 
-        for (const toolCall of data.toolCalls) {
-          await this.createToolCall(toolCall)
-        }
+    // Store tool calls
+    for (const toolCall of data.toolCalls || []) {
+      await this.createToolCall(toolCall)
+    }
 
-        for (const step of data.steps) {
-          await this.createStep(step)
-        }
+    // Store steps
+    for (const step of data.steps || []) {
+      await this.createStep(step)
+    }
 
-        await this.createTrajectory(data.trajectory)
-
-        await client.query("COMMIT")
-        return data.trajectory.id
-      } catch (error) {
-        await client.query("ROLLBACK")
-        throw error
-      }
-    })
+    return sessionId
   }
 
   async createMessagePart(data: MessagePartData): Promise<string> {
