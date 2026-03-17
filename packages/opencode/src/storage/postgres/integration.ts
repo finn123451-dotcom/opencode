@@ -62,25 +62,39 @@ export class OpenCodeIntegration {
     return await trajectoryCapture.endSession(status)
   }
 
-  async captureUserMessage(messageId: string, content: string, metadata?: Record<string, any>): Promise<void> {
+  async captureUserMessage(
+    messageId: string,
+    content: string,
+    metadata?: Record<string, any>,
+    branchId?: string,
+  ): Promise<void> {
     await this.ensureInitialized()
     if (!this.config.captureMessages) return
     await trajectoryCapture.captureMessage({
       id: messageId,
+      sessionId: "",
       role: "user",
       content,
       metadata,
+      branchId,
     })
   }
 
-  async captureAssistantMessage(messageId: string, content: string, metadata?: Record<string, any>): Promise<void> {
+  async captureAssistantMessage(
+    messageId: string,
+    content: string,
+    metadata?: Record<string, any>,
+    branchId?: string,
+  ): Promise<void> {
     await this.ensureInitialized()
     if (!this.config.captureMessages) return
     await trajectoryCapture.captureMessage({
       id: messageId,
+      sessionId: "",
       role: "assistant",
       content,
       metadata,
+      branchId,
     })
   }
 
@@ -102,10 +116,11 @@ export class OpenCodeIntegration {
       model?: string
       providerMetadata?: Record<string, any>
     },
+    branchId?: string,
   ): Promise<void> {
     await this.ensureInitialized()
     if (this.config.captureReasoning) {
-      await trajectoryCapture.captureReasoning(messageId, reasoning)
+      await trajectoryCapture.captureReasoning(messageId, reasoning, branchId)
     }
   }
 
@@ -117,9 +132,10 @@ export class OpenCodeIntegration {
       partOrder?: number
       metadata?: Record<string, any>
     },
+    branchId?: string,
   ): Promise<string> {
     await this.ensureInitialized()
-    return await trajectoryCapture.captureMessagePart(messageId, part)
+    return await trajectoryCapture.captureMessagePart(messageId, part, branchId)
   }
 
   async captureToolCallStart(
@@ -130,6 +146,7 @@ export class OpenCodeIntegration {
       toolCallId?: string
       callId?: string
     },
+    branchId?: string,
   ): Promise<string> {
     await this.ensureInitialized()
     if (this.config.captureToolCalls) {
@@ -139,6 +156,7 @@ export class OpenCodeIntegration {
         toolCall.callId || uuidv4(),
         toolCall.toolName,
         toolCall.input,
+        branchId,
       )
     }
     return ""
@@ -150,6 +168,7 @@ export class OpenCodeIntegration {
       output: string
       status?: "completed" | "failed"
     },
+    branchId?: string,
   ): Promise<void> {
     await this.ensureInitialized()
     if (this.config.captureToolCalls && toolCallId) {
@@ -276,6 +295,23 @@ export class OpenCodeIntegration {
   }): Promise<string> {
     await this.ensureInitialized()
     return await trajectoryCapture.captureToolAttachment(attachment)
+  }
+
+  async captureBranchSelection(selection: {
+    sessionId: string
+    winnerBranchId: string
+    winnerStrategy: string
+    allBranches: Array<{
+      id: string
+      name: string
+      status: string
+      success: boolean
+      durationMs: number
+    }>
+    scores: Record<string, number>
+  }): Promise<void> {
+    await this.ensureInitialized()
+    await trajectoryCapture.captureBranchSelection(selection)
   }
 
   async captureRetry(retry: {

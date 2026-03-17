@@ -34,6 +34,7 @@ import { spawn } from "child_process"
 import { Command } from "../command"
 import { $, fileURLToPath } from "bun"
 import { ConfigMarkdown } from "../config/markdown"
+import { Config } from "../config/config"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/util/error"
 import { fn } from "@/util/fn"
@@ -47,6 +48,7 @@ import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
 import { sessionTrajectoryTracker } from "./trajectory-integration"
+import { speculativeRun } from "./speculative"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -605,36 +607,86 @@ export namespace SessionPrompt {
 
       await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: sessionMessages })
 
-      const result = await processor.process({
-        user: lastUser,
-        agent,
-        abort,
-        sessionID,
-        system: [...(await SystemPrompt.environment(model)), ...(await InstructionPrompt.system())],
-        messages: [
-          ...MessageV2.toModelMessages(sessionMessages, model),
-          ...(isLastStep
-            ? [
-                {
-                  role: "assistant" as const,
-                  content: MAX_STEPS,
-                },
-              ]
-            : []),
-        ],
-        tools,
-        model,
-        onSystemPrompt: sessionTrajectoryTracker.isEnabled()
-          ? (systemPrompt: string) => {
-              sessionTrajectoryTracker.captureSystemPrompt(sessionID, systemPrompt)
-            }
-          : undefined,
-        onUserMessage: sessionTrajectoryTracker.isEnabled()
-          ? (messages: any[]) => {
-              sessionTrajectoryTracker.captureMessagesToLLM(sessionID, messages)
-            }
-          : undefined,
+      const config = await Config.get()
+      const speculativeEnabled = config.experimental?.speculative_reasoning ?? true
+      const useSpeculative = step === 1 && speculativeEnabled
+
+      log.info("speculative check", {
+        step,
+        useSpeculative,
+        speculative_reasoning: speculativeEnabled,
+        hasExperimental: !!config.experimental,
       })
+
+      let result: "stop" | "compact" | "error" | "continue" = "stop"
+
+      if (useSpeculative) {
+        try {
+          const winner = await speculativeRun(
+            sessionID,
+            {
+              user: lastUser,
+              agent,
+              messages: sessionMessages,
+              system: [...(await SystemPrompt.environment(model)), ...(await InstructionPrompt.system())],
+              tools: {} as Record<string, any>,
+              model,
+              abort,
+              sessionID,
+            },
+            undefined,
+            {
+              maxBranches: config.experimental?.speculative_max_branches ?? 3,
+              earlyStopOnSuccess: config.experimental?.speculative_early_stop ?? true,
+              timeoutMs: config.experimental?.speculative_timeout_ms ?? 60000,
+              parallel: config.experimental?.speculative_parallel ?? true,
+            },
+          )
+
+          if (winner.result?.success) {
+            result = winner.result.finishReason === "stop" ? "stop" : "compact"
+          } else {
+            result = "error"
+          }
+        } catch (error) {
+          log.error("speculative execution failed, falling back to sequential", { error })
+          result = "error"
+        }
+      }
+
+      if (!useSpeculative || result === "error") {
+        result = await processor.process({
+          user: lastUser,
+          agent,
+          abort,
+          sessionID,
+          system: [...(await SystemPrompt.environment(model)), ...(await InstructionPrompt.system())],
+          messages: [
+            ...MessageV2.toModelMessages(sessionMessages, model),
+            ...(isLastStep
+              ? [
+                  {
+                    role: "assistant" as const,
+                    content: MAX_STEPS,
+                  },
+                ]
+              : []),
+          ],
+          tools,
+          model,
+          onSystemPrompt: sessionTrajectoryTracker.isEnabled()
+            ? (systemPrompt: string) => {
+                sessionTrajectoryTracker.captureSystemPrompt(sessionID, systemPrompt)
+              }
+            : undefined,
+          onUserMessage: sessionTrajectoryTracker.isEnabled()
+            ? (messages: any[]) => {
+                sessionTrajectoryTracker.captureMessagesToLLM(sessionID, messages)
+              }
+            : undefined,
+        })
+      }
+
       if (result === "stop") {
         if (sessionTrajectoryTracker.isEnabled()) {
           await sessionTrajectoryTracker.endSession("completed")

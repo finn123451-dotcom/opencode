@@ -20,6 +20,7 @@ import {
   ApiCallLogData,
   CostStatisticData,
   PermissionRequestData,
+  BranchSelectionData,
 } from "./trajectory"
 import { knowledgeBase, memoryManager } from "./knowledge"
 import { v4 as uuidv4 } from "uuid"
@@ -67,6 +68,7 @@ export class TrajectoryCapture extends EventEmitter {
   private executionLogBuffer: ExecutionLogData[] = []
   private apiCallLogBuffer: ApiCallLogData[] = []
   private permissionRequestBuffer: PermissionRequestData[] = []
+  private branchSelectionBuffer: BranchSelectionData[] = []
 
   constructor(config: Partial<TrajectoryCaptureConfig> = {}) {
     super()
@@ -217,6 +219,7 @@ export class TrajectoryCapture extends EventEmitter {
       tokensCacheRead?: number
       tokensCacheWrite?: number
     },
+    branchId?: string,
   ): Promise<void> {
     if (!this.config.enabled || !this.currentSessionId) {
       logger.debug("skipping captureUserMessage", { enabled: this.config.enabled, sessionId: this.currentSessionId })
@@ -226,6 +229,7 @@ export class TrajectoryCapture extends EventEmitter {
     const messageData: MessageData = {
       id: messageId,
       sessionId: this.currentSessionId,
+      branchId,
       parentId: metadata?.parentId,
       role: "user",
       content,
@@ -272,6 +276,7 @@ export class TrajectoryCapture extends EventEmitter {
       tokensCacheRead?: number
       tokensCacheWrite?: number
     },
+    branchId?: string,
   ): Promise<void> {
     if (!this.config.enabled || !this.currentSessionId) {
       logger.debug("skipping captureAssistantMessage", {
@@ -284,6 +289,7 @@ export class TrajectoryCapture extends EventEmitter {
     const messageData: MessageData = {
       id: messageId,
       sessionId: this.currentSessionId,
+      branchId,
       parentId: metadata?.parentId,
       role: "assistant",
       content,
@@ -321,12 +327,14 @@ export class TrajectoryCapture extends EventEmitter {
       model?: string
       providerMetadata?: Record<string, any>
     },
+    branchId?: string,
   ): Promise<void> {
     if (!this.config.enabled || !this.currentSessionId) return
 
     const reasoningData: ReasoningChainData = {
       id: reasoningId,
       sessionId: this.currentSessionId,
+      branchId,
       messageId,
       content: "",
       model: metadata?.model,
@@ -377,6 +385,7 @@ export class TrajectoryCapture extends EventEmitter {
       model?: string
       providerMetadata?: Record<string, any>
     },
+    branchId?: string,
   ): Promise<string | void> {
     if (!this.config.enabled || !this.currentSessionId) return
 
@@ -387,10 +396,15 @@ export class TrajectoryCapture extends EventEmitter {
 
     if (!existingReasoning) {
       // Start new reasoning (INSERT)
-      await this.captureReasoningStart(messageId, actualReasoningId, {
-        model: reasoning.model,
-        providerMetadata: reasoning.providerMetadata,
-      })
+      await this.captureReasoningStart(
+        messageId,
+        actualReasoningId,
+        {
+          model: reasoning.model,
+          providerMetadata: reasoning.providerMetadata,
+        },
+        branchId,
+      )
       existingReasoning = this.reasoningBuffer.find((r) => r.id === actualReasoningId)
     }
 
@@ -424,6 +438,7 @@ export class TrajectoryCapture extends EventEmitter {
       partOrder?: number
       metadata?: Record<string, any>
     },
+    branchId?: string,
   ): Promise<string> {
     if (!this.config.enabled || !this.currentSessionId) return ""
 
@@ -431,6 +446,7 @@ export class TrajectoryCapture extends EventEmitter {
     const partData: MessagePartData = {
       id,
       sessionId: this.currentSessionId,
+      branchId,
       messageId: messageId || this.currentMessageId || "",
       partType: part.partType,
       content: part.content,
@@ -456,6 +472,7 @@ export class TrajectoryCapture extends EventEmitter {
     callId: string,
     toolName: string,
     input: Record<string, any>,
+    branchId?: string,
     metadata?: {
       title?: string
     },
@@ -465,6 +482,7 @@ export class TrajectoryCapture extends EventEmitter {
     const toolCallData: ToolCallData = {
       id: toolCallId,
       sessionId: this.currentSessionId,
+      branchId,
       messageId,
       callId,
       toolName,
@@ -483,6 +501,7 @@ export class TrajectoryCapture extends EventEmitter {
       stepType: "tool_call",
       content: `${toolName}(${JSON.stringify(input)})`,
       inputData: input,
+      branchId,
     })
 
     this.emit("tool_call_start", {
@@ -511,6 +530,7 @@ export class TrajectoryCapture extends EventEmitter {
         sourcePath?: string
       }>
     },
+    branchId?: string,
   ): Promise<void> {
     if (!this.config.enabled) return
 
@@ -564,6 +584,7 @@ export class TrajectoryCapture extends EventEmitter {
       tokensReasoning?: number
       cost?: number
     },
+    branchId?: string,
   ): Promise<string> {
     if (!this.config.enabled || !this.currentSessionId) return ""
 
@@ -603,6 +624,7 @@ export class TrajectoryCapture extends EventEmitter {
     const stepData: StepData = {
       id: stepId,
       sessionId: this.currentSessionId,
+      branchId,
       messageId,
       stepType: step.stepType,
       stepOrder: ++this.stepCounter,
@@ -785,14 +807,16 @@ export class TrajectoryCapture extends EventEmitter {
 
   async captureMessage(message: {
     id: string
+    sessionId: string
     role: string
     content: string
     metadata?: Record<string, any>
+    branchId?: string
   }): Promise<void> {
     if (message.role === "user") {
-      await this.captureUserMessage(message.id, message.content, message.metadata)
+      await this.captureUserMessage(message.id, message.content, message.metadata, message.branchId)
     } else if (message.role === "assistant") {
-      await this.captureAssistantMessage(message.id, message.content, message.metadata)
+      await this.captureAssistantMessage(message.id, message.content, message.metadata, message.branchId)
     }
   }
 
@@ -971,6 +995,34 @@ export class TrajectoryCapture extends EventEmitter {
     await trajectoryStorage.createToolAttachment(data)
 
     return id
+  }
+
+  async captureBranchSelection(selection: {
+    sessionId: string
+    winnerBranchId: string
+    winnerStrategy: string
+    allBranches: Array<{
+      id: string
+      name: string
+      status: string
+      success: boolean
+      durationMs: number
+    }>
+    scores: Record<string, number>
+  }): Promise<void> {
+    if (!this.config.enabled || !this.currentSessionId) return
+
+    const id = uuidv4()
+    const data: BranchSelectionData = {
+      id,
+      sessionId: selection.sessionId,
+      winnerBranchId: selection.winnerBranchId,
+      winnerStrategy: selection.winnerStrategy,
+      allBranches: selection.allBranches,
+      scores: selection.scores,
+    }
+
+    await trajectoryStorage.createBranchSelection(data)
   }
 
   async captureRetry(retry: {

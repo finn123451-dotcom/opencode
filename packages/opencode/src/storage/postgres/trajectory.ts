@@ -23,6 +23,7 @@ export interface SessionData {
 export interface MessageData {
   id: string
   sessionId: string
+  branchId?: string
   parentId?: string
   role: "user" | "assistant" | "system"
   content: string
@@ -61,6 +62,7 @@ export interface MessageData {
 export interface MessagePartData {
   id: string
   sessionId?: string
+  branchId?: string
   messageId: string
   partType:
     | "text"
@@ -83,6 +85,7 @@ export interface MessagePartData {
 export interface ReasoningChainData {
   id: string
   sessionId?: string
+  branchId?: string
   messageId: string
   content: string
   model?: string
@@ -96,6 +99,7 @@ export interface ReasoningChainData {
 export interface ToolCallData {
   id: string
   sessionId?: string
+  branchId?: string
   messageId: string
   callId: string
   toolName: string
@@ -126,6 +130,8 @@ export interface ToolCallData {
 
 export interface ToolAttachmentData {
   id: string
+  sessionId: string
+  branchId?: string
   toolCallId: string
   messageId?: string
   filename?: string
@@ -138,9 +144,26 @@ export interface ToolAttachmentData {
   metadata?: Record<string, any>
 }
 
+export interface BranchSelectionData {
+  id: string
+  sessionId: string
+  winnerBranchId: string
+  winnerStrategy: string
+  allBranches: Array<{
+    id: string
+    name: string
+    status: string
+    success: boolean
+    durationMs: number
+  }>
+  scores: Record<string, number>
+  metadata?: Record<string, any>
+}
+
 export interface FileOperationData {
   id: string
   sessionId: string
+  branchId?: string
   messageId?: string
   toolCallId?: string
   operationType: "read" | "write" | "edit" | "glob" | "grep" | "list" | "bash"
@@ -160,6 +183,7 @@ export interface FileOperationData {
 export interface SnapshotData {
   id: string
   sessionId: string
+  branchId?: string
   messageId?: string
   stepId?: string
   snapshotHash: string
@@ -174,6 +198,7 @@ export interface SnapshotData {
 export interface PatchData {
   id: string
   sessionId: string
+  branchId?: string
   messageId?: string
   stepId?: string
   patchHash: string
@@ -192,6 +217,7 @@ export interface PatchData {
 export interface StepData {
   id: string
   sessionId: string
+  branchId?: string
   messageId?: string
   stepType: "reasoning" | "tool_call" | "tool_result" | "text" | "error" | "subtask" | "compaction" | "text_generation"
   stepOrder: number
@@ -543,7 +569,7 @@ export class TrajectoryStorage {
 
     const query = `
       INSERT INTO messages (
-        id, session_id, parent_id, role, content,
+        id, session_id, branch_id, parent_id, role, content,
         model, provider_id, agent, variant, system_prompt,
         finish_reason, error,
         cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write,
@@ -553,33 +579,34 @@ export class TrajectoryStorage {
         step_order, is_summary,
         metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
       ON CONFLICT (id) DO UPDATE SET
         session_id = COALESCE($2, messages.session_id),
-        parent_id = COALESCE($3, messages.parent_id),
-        content = $5,
-        model = COALESCE($6, messages.model),
-        provider_id = COALESCE($7, messages.provider_id),
-        agent = COALESCE($8, messages.agent),
-        variant = COALESCE($9, messages.variant),
-        system_prompt = COALESCE($10, messages.system_prompt),
-        finish_reason = COALESCE($11, messages.finish_reason),
-        error = COALESCE($12, messages.error),
-        cost = COALESCE($13, messages.cost),
-        tokens_input = COALESCE($14, messages.tokens_input),
-        tokens_output = COALESCE($15, messages.tokens_output),
-        tokens_reasoning = COALESCE($16, messages.tokens_reasoning),
-        tokens_cache_read = COALESCE($17, messages.tokens_cache_read),
-        tokens_cache_write = COALESCE($18, messages.tokens_cache_write),
-        path_cwd = COALESCE($19, messages.path_cwd),
-        path_root = COALESCE($20, messages.path_root),
-        summary_title = COALESCE($21, messages.summary_title),
-        summary_body = COALESCE($22, messages.summary_body),
-        time_created = $23,
-        time_completed = COALESCE($24, messages.time_completed),
-        step_order = COALESCE($25, messages.step_order),
-        is_summary = COALESCE($26, messages.is_summary),
-        metadata = COALESCE($27, messages.metadata)::jsonb,
+        branch_id = COALESCE($3, messages.branch_id),
+        parent_id = COALESCE($4, messages.parent_id),
+        content = $6,
+        model = COALESCE($7, messages.model),
+        provider_id = COALESCE($8, messages.provider_id),
+        agent = COALESCE($9, messages.agent),
+        variant = COALESCE($10, messages.variant),
+        system_prompt = COALESCE($11, messages.system_prompt),
+        finish_reason = COALESCE($12, messages.finish_reason),
+        error = COALESCE($13, messages.error),
+        cost = COALESCE($14, messages.cost),
+        tokens_input = COALESCE($15, messages.tokens_input),
+        tokens_output = COALESCE($16, messages.tokens_output),
+        tokens_reasoning = COALESCE($17, messages.tokens_reasoning),
+        tokens_cache_read = COALESCE($18, messages.tokens_cache_read),
+        tokens_cache_write = COALESCE($19, messages.tokens_cache_write),
+        path_cwd = COALESCE($20, messages.path_cwd),
+        path_root = COALESCE($21, messages.path_root),
+        summary_title = COALESCE($22, messages.summary_title),
+        summary_body = COALESCE($23, messages.summary_body),
+        time_created = $24,
+        time_completed = COALESCE($25, messages.time_completed),
+        step_order = COALESCE($26, messages.step_order),
+        is_summary = COALESCE($27, messages.is_summary),
+        metadata = COALESCE($28, messages.metadata)::jsonb,
         updated_at = NOW()
       RETURNING id
     `
@@ -587,6 +614,7 @@ export class TrajectoryStorage {
     const result = await this.pool.query(query, [
       data.id,
       sessionId,
+      data.branchId || null,
       data.parentId || null,
       data.role,
       data.content,
@@ -631,22 +659,24 @@ export class TrajectoryStorage {
     const messageId = data.messageId
 
     const query = `
-      INSERT INTO reasoning_chains (id, session_id, message_id, content, model, time_start, time_end, provider_metadata, part_order, metadata)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      INSERT INTO reasoning_chains (id, session_id, branch_id, message_id, content, model, time_start, time_end, provider_metadata, part_order, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       ON CONFLICT (id) DO UPDATE SET
-        content = $4,
-        model = COALESCE($5, reasoning_chains.model),
-        time_start = COALESCE($6, reasoning_chains.time_start),
-        time_end = COALESCE($7, reasoning_chains.time_end),
-        provider_metadata = COALESCE($8, reasoning_chains.provider_metadata),
-        part_order = COALESCE($9, reasoning_chains.part_order),
-        metadata = COALESCE($10, reasoning_chains.metadata)::jsonb
+        content = $5,
+        branch_id = COALESCE($3, reasoning_chains.branch_id),
+        model = COALESCE($6, reasoning_chains.model),
+        time_start = COALESCE($7, reasoning_chains.time_start),
+        time_end = COALESCE($8, reasoning_chains.time_end),
+        provider_metadata = COALESCE($9, reasoning_chains.provider_metadata),
+        part_order = COALESCE($10, reasoning_chains.part_order),
+        metadata = COALESCE($11, reasoning_chains.metadata)::jsonb
       RETURNING id
     `
 
     const result = await this.pool.query(query, [
       data.id,
       sessionId,
+      data.branchId || null,
       messageId,
       data.content,
       data.model || null,
@@ -711,30 +741,32 @@ export class TrajectoryStorage {
 
     const query = `
       INSERT INTO tool_calls (
-        id, session_id, message_id, call_id, tool_name, input, output, raw_output, truncated,
+        id, session_id, branch_id, message_id, call_id, tool_name, input, output, raw_output, truncated,
         status, error_message, title, output_path,
-        time_created, time_start, time_end, duration_ms, part_order, attachments, metadata
+        time_created, time_start, time_end, duration_ms, part_order, attachments, metadata,
+        created_at, updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW())
       ON CONFLICT (id) DO UPDATE SET
-        message_id = COALESCE($3, tool_calls.message_id),
-        call_id = $4,
-        tool_name = $5,
-        input = $6,
-        output = COALESCE($7, tool_calls.output),
-        raw_output = COALESCE($8, tool_calls.raw_output),
-        truncated = COALESCE($9, tool_calls.truncated),
-        status = COALESCE($10, tool_calls.status),
-        error_message = COALESCE($11, tool_calls.error_message),
-        title = COALESCE($12, tool_calls.title),
-        output_path = COALESCE($13, tool_calls.output_path),
-        time_created = $14,
-        time_start = COALESCE($15, tool_calls.time_start),
-        time_end = COALESCE($16, tool_calls.time_end),
-        duration_ms = COALESCE($17, tool_calls.duration_ms),
-        part_order = COALESCE($18, tool_calls.part_order),
-        attachments = COALESCE($19, tool_calls.attachments),
-        metadata = COALESCE($20, tool_calls.metadata)::jsonb,
+        branch_id = COALESCE($3, tool_calls.branch_id),
+        message_id = COALESCE($4, tool_calls.message_id),
+        call_id = $5,
+        tool_name = $6,
+        input = $7,
+        output = COALESCE($8, tool_calls.output),
+        raw_output = COALESCE($9, tool_calls.raw_output),
+        truncated = COALESCE($10, tool_calls.truncated),
+        status = COALESCE($11, tool_calls.status),
+        error_message = COALESCE($12, tool_calls.error_message),
+        title = COALESCE($13, tool_calls.title),
+        output_path = COALESCE($14, tool_calls.output_path),
+        time_created = $15,
+        time_start = COALESCE($16, tool_calls.time_start),
+        time_end = COALESCE($17, tool_calls.time_end),
+        duration_ms = COALESCE($18, tool_calls.duration_ms),
+        part_order = COALESCE($19, tool_calls.part_order),
+        attachments = COALESCE($20, tool_calls.attachments),
+        metadata = COALESCE($21, tool_calls.metadata)::jsonb,
         updated_at = NOW()
       RETURNING id
     `
@@ -742,6 +774,7 @@ export class TrajectoryStorage {
     const result = await this.pool.query(query, [
       data.id,
       sessionId,
+      data.branchId || null,
       messageId,
       data.callId,
       data.toolName,
@@ -820,42 +853,44 @@ export class TrajectoryStorage {
 
     const query = `
       INSERT INTO steps (
-        id, session_id, message_id, step_type, step_order,
+        id, session_id, branch_id, message_id, step_type, step_order,
         content, input_data, output_data, snapshot_id, patch_id, tool_call_id,
         reason, status,
         tokens_input, tokens_output, tokens_reasoning, cost,
         time_start, time_end, duration_ms, step_group,
-        metadata
+        metadata, created_at
       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW())
       ON CONFLICT (id) DO UPDATE SET
         session_id = COALESCE($2, steps.session_id),
-        message_id = COALESCE($3, steps.message_id),
-        step_type = $4,
-        step_order = COALESCE($5, steps.step_order),
-        content = COALESCE($6, steps.content),
-        input_data = COALESCE($7, steps.input_data),
-        output_data = COALESCE($8, steps.output_data),
-        snapshot_id = COALESCE($9, steps.snapshot_id),
-        patch_id = COALESCE($10, steps.patch_id),
-        tool_call_id = COALESCE($11, steps.tool_call_id),
-        reason = COALESCE($12, steps.reason),
-        status = COALESCE($13, steps.status),
-        tokens_input = COALESCE($14, steps.tokens_input),
-        tokens_output = COALESCE($15, steps.tokens_output),
-        tokens_reasoning = COALESCE($16, steps.tokens_reasoning),
-        cost = COALESCE($17, steps.cost),
-        time_start = COALESCE($18, steps.time_start),
-        time_end = COALESCE($19, steps.time_end),
-        duration_ms = COALESCE($20, steps.duration_ms),
-        step_group = COALESCE($21, steps.step_group),
-        metadata = COALESCE($22, steps.metadata)::jsonb
+        branch_id = COALESCE($3, steps.branch_id),
+        message_id = COALESCE($4, steps.message_id),
+        step_type = $5,
+        step_order = COALESCE($6, steps.step_order),
+        content = COALESCE($7, steps.content),
+        input_data = COALESCE($8, steps.input_data),
+        output_data = COALESCE($9, steps.output_data),
+        snapshot_id = COALESCE($10, steps.snapshot_id),
+        patch_id = COALESCE($11, steps.patch_id),
+        tool_call_id = COALESCE($12, steps.tool_call_id),
+        reason = COALESCE($13, steps.reason),
+        status = COALESCE($14, steps.status),
+        tokens_input = COALESCE($15, steps.tokens_input),
+        tokens_output = COALESCE($16, steps.tokens_output),
+        tokens_reasoning = COALESCE($17, steps.tokens_reasoning),
+        cost = COALESCE($18, steps.cost),
+        time_start = COALESCE($19, steps.time_start),
+        time_end = COALESCE($20, steps.time_end),
+        duration_ms = COALESCE($21, steps.duration_ms),
+        step_group = COALESCE($22, steps.step_group),
+        metadata = COALESCE($23, steps.metadata)::jsonb
       RETURNING id
     `
 
     const result = await this.pool.query(query, [
       data.id,
       data.sessionId,
+      data.branchId || null,
       messageId,
       data.stepType,
       data.stepOrder,
@@ -1065,14 +1100,15 @@ export class TrajectoryStorage {
     }
 
     const query = `
-      INSERT INTO message_parts (id, session_id, message_id, part_type, content, part_order, metadata)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO message_parts (id, session_id, branch_id, message_id, part_type, content, part_order, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id
     `
 
     const result = await this.pool.query(query, [
       data.id,
       sessionId,
+      data.branchId || null,
       messageId,
       data.partType,
       data.content || null,
@@ -1295,21 +1331,25 @@ export class TrajectoryStorage {
     const messageId = data.messageId
 
     const query = `
-      INSERT INTO snapshots (id, session_id, message_id, step_id, snapshot_hash, working_directory, file_count, file_list, time_created, snapshot_order, metadata)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      INSERT INTO snapshots (id, session_id, branch_id, message_id, step_id, snapshot_hash, working_directory, file_count, file_list, time_created, snapshot_order, metadata, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
       ON CONFLICT (id) DO UPDATE SET
-        snapshot_hash = COALESCE($5, snapshots.snapshot_hash),
-        working_directory = COALESCE($6, snapshots.working_directory),
-        file_count = COALESCE($7, snapshots.file_count),
-        file_list = COALESCE($8, snapshots.file_list),
-        snapshot_order = COALESCE($10, snapshots.snapshot_order),
-        metadata = COALESCE($11, snapshots.metadata)::jsonb
+        branch_id = COALESCE($3, snapshots.branch_id),
+        message_id = COALESCE($4, snapshots.message_id),
+        step_id = COALESCE($5, snapshots.step_id),
+        snapshot_hash = COALESCE($6, snapshots.snapshot_hash),
+        working_directory = COALESCE($7, snapshots.working_directory),
+        file_count = COALESCE($8, snapshots.file_count),
+        file_list = COALESCE($9, snapshots.file_list),
+        snapshot_order = COALESCE($11, snapshots.snapshot_order),
+        metadata = COALESCE($12, snapshots.metadata)::jsonb
       RETURNING id
     `
 
     const result = await this.pool.query(query, [
       data.id,
       data.sessionId,
+      data.branchId || null,
       messageId,
       data.stepId || null,
       data.snapshotHash,
@@ -1339,25 +1379,30 @@ export class TrajectoryStorage {
     }
 
     const query = `
-      INSERT INTO patches (id, session_id, message_id, step_id, patch_hash, file_path, file_diff, additions, deletions, diff_stats, original_content, patched_content, time_created, patch_order, metadata)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      INSERT INTO patches (id, session_id, branch_id, message_id, step_id, patch_hash, file_path, file_diff, additions, deletions, diff_stats, original_content, patched_content, time_created, patch_order, metadata, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
       ON CONFLICT (id) DO UPDATE SET
-        patch_hash = COALESCE($5, patches.patch_hash),
-        file_path = COALESCE($6, patches.file_path),
-        file_diff = COALESCE($7, patches.file_diff),
-        additions = COALESCE($8, patches.additions),
-        deletions = COALESCE($9, patches.deletions),
-        diff_stats = COALESCE($10, patches.diff_stats),
-        original_content = COALESCE($11, patches.original_content),
-        patched_content = COALESCE($12, patches.patched_content),
-        patch_order = COALESCE($14, patches.patch_order),
-        metadata = COALESCE($15, patches.metadata)::jsonb
+        branch_id = COALESCE($3, patches.branch_id),
+        message_id = COALESCE($4, patches.message_id),
+        step_id = COALESCE($5, patches.step_id),
+        patch_hash = COALESCE($6, patches.patch_hash),
+        file_path = COALESCE($7, patches.file_path),
+        file_diff = COALESCE($8, patches.file_diff),
+        additions = COALESCE($9, patches.additions),
+        deletions = COALESCE($10, patches.deletions),
+        diff_stats = COALESCE($11, patches.diff_stats),
+        original_content = COALESCE($12, patches.original_content),
+        patched_content = COALESCE($13, patches.patched_content),
+        time_created = COALESCE($14, patches.time_created),
+        patch_order = COALESCE($15, patches.patch_order),
+        metadata = COALESCE($16, patches.metadata)::jsonb
       RETURNING id
     `
 
     const result = await this.pool.query(query, [
       data.id,
       data.sessionId,
+      data.branchId || null,
       messageId,
       data.stepId || null,
       data.patchHash,
@@ -1409,22 +1454,24 @@ export class TrajectoryStorage {
     const messageId = data.messageId
 
     const query = `
-      INSERT INTO tool_attachments (id, session_id, message_id, tool_call_id, filename, mime, url, source_type, source_path, source_range, time_created)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      INSERT INTO tool_attachments (id, session_id, branch_id, message_id, tool_call_id, filename, mime, url, source_type, source_path, source_range, time_created)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       ON CONFLICT (id) DO UPDATE SET
-        tool_call_id = COALESCE($4, tool_attachments.tool_call_id),
-        filename = COALESCE($5, tool_attachments.filename),
-        mime = COALESCE($6, tool_attachments.mime),
-        url = COALESCE($7, tool_attachments.url),
-        source_type = COALESCE($8, tool_attachments.source_type),
-        source_path = COALESCE($9, tool_attachments.source_path),
-        source_range = COALESCE($10, tool_attachments.source_range)
+        branch_id = COALESCE($3, tool_attachments.branch_id),
+        tool_call_id = COALESCE($5, tool_attachments.tool_call_id),
+        filename = COALESCE($6, tool_attachments.filename),
+        mime = COALESCE($7, tool_attachments.mime),
+        url = COALESCE($8, tool_attachments.url),
+        source_type = COALESCE($9, tool_attachments.source_type),
+        source_path = COALESCE($10, tool_attachments.source_path),
+        source_range = COALESCE($11, tool_attachments.source_range)
       RETURNING id
     `
 
     const result = await this.pool.query(query, [
       data.id,
-      data.sessionId,
+      sessionId,
+      data.branchId || null,
       messageId,
       data.toolCallId || null,
       data.filename,
@@ -1464,6 +1511,32 @@ export class TrajectoryStorage {
       data.errorStack || null,
       data.status || "pending",
       data.timeCreated,
+      JSON.stringify(data.metadata || {}),
+    ])
+
+    return result.rows[0].id
+  }
+
+  async createBranchSelection(data: BranchSelectionData): Promise<string> {
+    const query = `
+      INSERT INTO branch_selections (id, session_id, winner_branch_id, winner_strategy, all_branches, scores, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (id) DO UPDATE SET
+        winner_branch_id = COALESCE($3, branch_selections.winner_branch_id),
+        winner_strategy = COALESCE($4, branch_selections.winner_strategy),
+        all_branches = COALESCE($5, branch_selections.all_branches),
+        scores = COALESCE($6, branch_selections.scores),
+        metadata = COALESCE($7, branch_selections.metadata)::jsonb
+      RETURNING id
+    `
+
+    const result = await this.pool.query(query, [
+      data.id,
+      data.sessionId,
+      data.winnerBranchId,
+      data.winnerStrategy,
+      JSON.stringify(data.allBranches),
+      JSON.stringify(data.scores),
       JSON.stringify(data.metadata || {}),
     ])
 

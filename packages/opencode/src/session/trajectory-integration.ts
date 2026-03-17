@@ -29,6 +29,7 @@ export interface TrajectoryEventMap {
 export class SessionTrajectoryTracker extends EventEmitter {
   private sessionId: string | null = null
   private currentMessageId: string | null = null
+  private currentBranchId: string | null = null
   private activeToolCalls: Map<string, { toolName: string; startTime: number; input: any }> = new Map()
   private activeReasoning: Map<string, { text: string; startTime: number }> = new Map()
   private enabled: boolean = false
@@ -290,12 +291,16 @@ export class SessionTrajectoryTracker extends EventEmitter {
     this.activeToolCalls.set(toolCallId, { toolName, startTime: Date.now(), input })
 
     try {
-      await opencodeIntegration.captureToolCallStart(messageId, {
-        toolName,
-        input,
-        toolCallId,
-        callId,
-      })
+      await opencodeIntegration.captureToolCallStart(
+        messageId,
+        {
+          toolName,
+          input,
+          toolCallId,
+          callId,
+        },
+        this.currentBranchId ?? undefined,
+      )
     } catch (error) {
       logger.error("failed to capture tool call start", { error })
     }
@@ -312,10 +317,14 @@ export class SessionTrajectoryTracker extends EventEmitter {
     const toolCall = this.activeToolCalls.get(toolCallId)
     if (toolCall) {
       try {
-        await opencodeIntegration.captureToolCallComplete(toolCallId, {
-          output,
-          status,
-        })
+        await opencodeIntegration.captureToolCallComplete(
+          toolCallId,
+          {
+            output,
+            status,
+          },
+          this.currentBranchId ?? undefined,
+        )
       } catch (error) {
         logger.error("failed to capture tool call result", { error })
       }
@@ -401,6 +410,28 @@ export class SessionTrajectoryTracker extends EventEmitter {
       return await opencodeIntegration.captureToolAttachment(attachment)
     } catch {
       return ""
+    }
+  }
+
+  async captureBranchSelection(selection: {
+    sessionId: string
+    winnerBranchId: string
+    winnerStrategy: string
+    allBranches: Array<{
+      id: string
+      name: string
+      status: string
+      success: boolean
+      durationMs: number
+    }>
+    scores: Record<string, number>
+  }): Promise<void> {
+    if (!this.enabled) return
+
+    try {
+      await opencodeIntegration.captureBranchSelection(selection)
+    } catch (error) {
+      logger.error("failed to capture branch selection", { error })
     }
   }
 
@@ -492,6 +523,14 @@ export class SessionTrajectoryTracker extends EventEmitter {
 
   isEnabled(): boolean {
     return this.enabled
+  }
+
+  setBranch(branchId: string | null): void {
+    this.currentBranchId = branchId
+  }
+
+  getBranch(): string | null {
+    return this.currentBranchId
   }
 
   getSessionId(): string | null {

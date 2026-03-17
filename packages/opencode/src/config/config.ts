@@ -1080,10 +1080,7 @@ export namespace Config {
         .object({
           disable_paste_summary: z.boolean().optional(),
           batch_tool: z.boolean().optional().describe("Enable the batch tool"),
-          trajectoryStorage: z
-            .boolean()
-            .optional()
-            .describe("Enable trajectory storage to PostgreSQL"),
+          trajectoryStorage: z.boolean().optional().describe("Enable trajectory storage to PostgreSQL"),
           openTelemetry: z
             .boolean()
             .optional()
@@ -1099,6 +1096,35 @@ export namespace Config {
             .positive()
             .optional()
             .describe("Timeout in milliseconds for model context protocol (MCP) requests"),
+          speculative_reasoning: z
+            .boolean()
+            .default(true)
+            .describe("Enable speculative parallel reasoning (default: true)"),
+          speculative_max_branches: z
+            .number()
+            .int()
+            .positive()
+            .default(3)
+            .describe("Maximum number of speculative branches (default: 3)"),
+          speculative_evaluation: z
+            .enum(["auto", "manual"])
+            .default("auto")
+            .describe("Speculative branch evaluation mode (default: auto)"),
+          speculative_timeout_ms: z
+            .number()
+            .int()
+            .positive()
+            .default(60000)
+            .describe("Timeout for each speculative branch (ms, default: 60000)"),
+          speculative_early_stop: z
+            .boolean()
+            .default(true)
+            .describe("Stop other branches when one succeeds (default: true)"),
+          speculative_parallel: z.boolean().default(true).describe("Execute branches in parallel (default: true)"),
+          speculative_branching: z
+            .enum(["filesystem", "daxfs"])
+            .default("filesystem")
+            .describe("Branch implementation: filesystem simulation or daxfs (default: filesystem)"),
         })
         .optional(),
     })

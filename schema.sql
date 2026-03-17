@@ -6,6 +6,7 @@
 -- ============================================
 -- 先删除所有表
 -- ============================================
+DROP TABLE IF EXISTS branch_selections CASCADE;
 DROP TABLE IF EXISTS llm_messages CASCADE;
 DROP TABLE IF EXISTS memories CASCADE;
 DROP TABLE IF EXISTS knowledge_base CASCADE;
@@ -87,6 +88,7 @@ CREATE INDEX idx_sessions_directory ON sessions(directory);
 CREATE TABLE messages (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE CASCADE,
+    branch_id VARCHAR(64),
     parent_id VARCHAR(255),
     role VARCHAR(50) NOT NULL,
     content TEXT NOT NULL,
@@ -117,6 +119,7 @@ CREATE TABLE messages (
 );
 
 CREATE INDEX idx_messages_session_id ON messages(session_id);
+CREATE INDEX idx_messages_branch_id ON messages(branch_id);
 CREATE INDEX idx_messages_parent_id ON messages(parent_id);
 CREATE INDEX idx_messages_role ON messages(role);
 CREATE INDEX idx_messages_model ON messages(model);
@@ -131,6 +134,7 @@ CREATE INDEX idx_messages_finish_reason ON messages(finish_reason);
 CREATE TABLE message_parts (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE SET NULL,
+    branch_id VARCHAR(64),
     message_id VARCHAR(255),
     part_type VARCHAR(50) NOT NULL,
     content TEXT,
@@ -140,6 +144,7 @@ CREATE TABLE message_parts (
 );
 
 CREATE INDEX idx_message_parts_session_id ON message_parts(session_id);
+CREATE INDEX idx_message_parts_branch_id ON message_parts(branch_id);
 CREATE INDEX idx_message_parts_message_id ON message_parts(message_id);
 CREATE INDEX idx_message_parts_type ON message_parts(part_type);
 
@@ -149,6 +154,7 @@ CREATE INDEX idx_message_parts_type ON message_parts(part_type);
 CREATE TABLE reasoning_chains (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE SET NULL,
+    branch_id VARCHAR(64),
     message_id VARCHAR(255),
     content TEXT NOT NULL,
     model VARCHAR(255),
@@ -162,6 +168,7 @@ CREATE TABLE reasoning_chains (
 );
 
 CREATE INDEX idx_reasoning_session_id ON reasoning_chains(session_id);
+CREATE INDEX idx_reasoning_branch_id ON reasoning_chains(branch_id);
 CREATE INDEX idx_reasoning_message_id ON reasoning_chains(message_id);
 CREATE INDEX idx_reasoning_model ON reasoning_chains(model);
 CREATE INDEX idx_reasoning_time_start ON reasoning_chains(time_start DESC);
@@ -173,6 +180,7 @@ CREATE INDEX idx_reasoning_part_order ON reasoning_chains(part_order);
 CREATE TABLE tool_calls (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE SET NULL,
+    branch_id VARCHAR(64),
     message_id VARCHAR(255),
     call_id VARCHAR(255) NOT NULL,
     tool_name VARCHAR(255) NOT NULL,
@@ -196,6 +204,7 @@ CREATE TABLE tool_calls (
 );
 
 CREATE INDEX idx_tool_calls_session_id ON tool_calls(session_id);
+CREATE INDEX idx_tool_calls_branch_id ON tool_calls(branch_id);
 CREATE INDEX idx_tool_calls_message_id ON tool_calls(message_id);
 CREATE INDEX idx_tool_calls_call_id ON tool_calls(call_id);
 CREATE INDEX idx_tool_calls_tool_name ON tool_calls(tool_name);
@@ -209,6 +218,8 @@ CREATE INDEX idx_tool_calls_part_order ON tool_calls(part_order);
 -- ============================================
 CREATE TABLE tool_attachments (
     id VARCHAR(255) PRIMARY KEY,
+    session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE SET NULL,
+    branch_id VARCHAR(64),
     tool_call_id VARCHAR(255) REFERENCES tool_calls(id) ON DELETE SET NULL,
     message_id VARCHAR(255),
     filename VARCHAR(500),
@@ -222,6 +233,8 @@ CREATE TABLE tool_attachments (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+CREATE INDEX idx_tool_attachments_session_id ON tool_attachments(session_id);
+CREATE INDEX idx_tool_attachments_branch_id ON tool_attachments(branch_id);
 CREATE INDEX idx_tool_attachments_tool_call_id ON tool_attachments(tool_call_id);
 CREATE INDEX idx_tool_attachments_message_id ON tool_attachments(message_id);
 CREATE INDEX idx_tool_attachments_filename ON tool_attachments(filename);
@@ -232,6 +245,7 @@ CREATE INDEX idx_tool_attachments_filename ON tool_attachments(filename);
 CREATE TABLE snapshots (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE CASCADE,
+    branch_id VARCHAR(64),
     message_id VARCHAR(255),
     step_id VARCHAR(255),
     snapshot_hash VARCHAR(255) NOT NULL,
@@ -245,6 +259,7 @@ CREATE TABLE snapshots (
 );
 
 CREATE INDEX idx_snapshots_session_id ON snapshots(session_id);
+CREATE INDEX idx_snapshots_branch_id ON snapshots(branch_id);
 CREATE INDEX idx_snapshots_message_id ON snapshots(message_id);
 CREATE INDEX idx_snapshots_hash ON snapshots(snapshot_hash);
 CREATE INDEX idx_snapshots_time_created ON snapshots(time_created DESC);
@@ -256,6 +271,7 @@ CREATE INDEX idx_snapshots_order ON snapshots(snapshot_order);
 CREATE TABLE patches (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE CASCADE,
+    branch_id VARCHAR(64),
     message_id VARCHAR(255),
     step_id VARCHAR(255),
     patch_hash VARCHAR(255) NOT NULL,
@@ -273,6 +289,7 @@ CREATE TABLE patches (
 );
 
 CREATE INDEX idx_patches_session_id ON patches(session_id);
+CREATE INDEX idx_patches_branch_id ON patches(branch_id);
 CREATE INDEX idx_patches_message_id ON patches(message_id);
 CREATE INDEX idx_patches_hash ON patches(patch_hash);
 CREATE INDEX idx_patches_file_path ON patches(file_path);
@@ -285,6 +302,7 @@ CREATE INDEX idx_patches_order ON patches(patch_order);
 CREATE TABLE steps (
     id VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE CASCADE,
+    branch_id VARCHAR(64),
     message_id VARCHAR(255),
     step_type VARCHAR(100) NOT NULL,
     step_order INTEGER NOT NULL,
@@ -309,6 +327,7 @@ CREATE TABLE steps (
 );
 
 CREATE INDEX idx_steps_session_id ON steps(session_id);
+CREATE INDEX idx_steps_branch_id ON steps(branch_id);
 CREATE INDEX idx_steps_message_id ON steps(message_id);
 CREATE INDEX idx_steps_step_type ON steps(step_type);
 CREATE INDEX idx_steps_order ON steps(step_order);
@@ -579,6 +598,24 @@ CREATE INDEX idx_llm_messages_session_id ON llm_messages(session_id);
 CREATE INDEX idx_llm_messages_message_id ON llm_messages(message_id);
 CREATE INDEX idx_llm_messages_role ON llm_messages(role);
 CREATE INDEX idx_llm_messages_time_created ON llm_messages(time_created DESC);
+
+-- ============================================
+-- 20. 分支选择记录表 (投机推理)
+-- ============================================
+CREATE TABLE IF NOT EXISTS branch_selections (
+    id VARCHAR(255) PRIMARY KEY,
+    session_id VARCHAR(255) NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    winner_branch_id VARCHAR(64) NOT NULL,
+    winner_strategy VARCHAR(100) NOT NULL,
+    all_branches JSONB NOT NULL,
+    scores JSONB NOT NULL DEFAULT '{}',
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_branch_selections_session_id ON branch_selections(session_id);
+CREATE INDEX IF NOT EXISTS idx_branch_selections_winner_branch_id ON branch_selections(winner_branch_id);
+CREATE INDEX IF NOT EXISTS idx_branch_selections_created_at ON branch_selections(created_at DESC);
 
 -- ============================================
 -- 完成
