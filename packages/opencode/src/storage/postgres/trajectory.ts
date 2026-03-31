@@ -486,7 +486,7 @@ export class TrajectoryStorage {
 
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i]
-      
+
       // Try to find corresponding message in messages table
       let messageId = msg.messageId || msg.id || null
       let model = msg.model || null
@@ -499,7 +499,7 @@ export class TrajectoryStorage {
       if (!messageId && msg.content) {
         const msgCheck = await this.pool.query(
           "SELECT id, model, provider_id FROM messages WHERE session_id = $1 AND role = $2 AND content = $3 ORDER BY time_created DESC LIMIT 1",
-          [sessionId, msg.role || 'user', typeof msg.content === 'string' ? msg.content.substring(0, 100) : '']
+          [sessionId, msg.role || "user", typeof msg.content === "string" ? msg.content.substring(0, 100) : ""],
         )
         if (msgCheck.rows.length > 0) {
           messageId = msgCheck.rows[0].id
@@ -525,21 +525,6 @@ export class TrajectoryStorage {
         toolName,
         model,
         providerId,
-        msg.timeCreated || Date.now(),
-        JSON.stringify(msg.metadata || {}),
-      ])
-    }
-  }
-        sessionId,
-        messageId,
-        msg.role || "user",
-        typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content),
-        msg.name || null,
-        JSON.stringify(msg.tool_calls || null),
-        msg.tool_call_id || null,
-        msg.tool_name || null,
-        msg.model || null,
-        msg.provider_id || null,
         msg.timeCreated || Date.now(),
         JSON.stringify(msg.metadata || {}),
       ])
