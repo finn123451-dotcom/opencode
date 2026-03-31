@@ -1269,6 +1269,7 @@ export namespace SessionPrompt {
           agent: info.agent,
           model: info.model?.modelID,
           providerId: info.model?.providerID,
+          timeCreated: info.time?.created,
         })
       } catch (err) {
         logger.error("error capturing user message", { error: err })

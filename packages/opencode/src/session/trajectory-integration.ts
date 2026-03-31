@@ -183,6 +183,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
       agent?: string
       model?: string
       providerId?: string
+      timeCreated?: number
     },
   ): Promise<void> {
     if (!this.enabled) return
@@ -205,6 +206,8 @@ export class SessionTrajectoryTracker extends EventEmitter {
       tokensInput?: number
       tokensOutput?: number
       tokensReasoning?: number
+      timeCreated?: number
+      timeCompleted?: number
     },
   ): Promise<void> {
     if (!this.enabled) return

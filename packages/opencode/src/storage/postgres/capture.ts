@@ -216,6 +216,7 @@ export class TrajectoryCapture extends EventEmitter {
       tokensReasoning?: number
       tokensCacheRead?: number
       tokensCacheWrite?: number
+      timeCreated?: number
     },
   ): Promise<void> {
     if (!this.config.enabled || !this.currentSessionId) {
@@ -240,7 +241,7 @@ export class TrajectoryCapture extends EventEmitter {
       tokensReasoning: metadata?.tokensReasoning || 0,
       tokensCacheRead: metadata?.tokensCacheRead || 0,
       tokensCacheWrite: metadata?.tokensCacheWrite || 0,
-      timeCreated: Date.now(),
+      timeCreated: metadata?.timeCreated ?? Date.now(),
       stepOrder: this.messageBuffer.length,
     }
 
@@ -271,6 +272,8 @@ export class TrajectoryCapture extends EventEmitter {
       tokensReasoning?: number
       tokensCacheRead?: number
       tokensCacheWrite?: number
+      timeCreated?: number
+      timeCompleted?: number
     },
   ): Promise<void> {
     if (!this.config.enabled || !this.currentSessionId) {
@@ -298,8 +301,8 @@ export class TrajectoryCapture extends EventEmitter {
       tokensReasoning: metadata?.tokensReasoning || 0,
       tokensCacheRead: metadata?.tokensCacheRead || 0,
       tokensCacheWrite: metadata?.tokensCacheWrite || 0,
-      timeCreated: Date.now(),
-      timeCompleted: Date.now(),
+      timeCreated: metadata?.timeCreated ?? Date.now(),
+      timeCompleted: metadata?.timeCompleted ?? null,
       stepOrder: this.messageBuffer.length,
     }
 

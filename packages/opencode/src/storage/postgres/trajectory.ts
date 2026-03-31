@@ -572,7 +572,7 @@ export class TrajectoryStorage {
       ON CONFLICT (id) DO UPDATE SET
         session_id = COALESCE($2, messages.session_id),
         parent_id = COALESCE($3, messages.parent_id),
-        content = $5,
+        content = COALESCE(NULLIF($5, ''), messages.content),
         model = COALESCE($6, messages.model),
         provider_id = COALESCE($7, messages.provider_id),
         agent = COALESCE($8, messages.agent),
@@ -590,7 +590,7 @@ export class TrajectoryStorage {
         path_root = COALESCE($20, messages.path_root),
         summary_title = COALESCE($21, messages.summary_title),
         summary_body = COALESCE($22, messages.summary_body),
-        time_created = $23,
+        time_created = COALESCE($23, messages.time_created),
         time_completed = COALESCE($24, messages.time_completed),
         step_order = COALESCE($25, messages.step_order),
         is_summary = COALESCE($26, messages.is_summary),
@@ -649,7 +649,7 @@ export class TrajectoryStorage {
       INSERT INTO reasoning_chains (id, session_id, message_id, content, model, time_start, time_end, provider_metadata, part_order, metadata)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (id) DO UPDATE SET
-        content = $4,
+        content = COALESCE(NULLIF($4, ''), reasoning_chains.content),
         model = COALESCE($5, reasoning_chains.model),
         time_start = COALESCE($6, reasoning_chains.time_start),
         time_end = COALESCE($7, reasoning_chains.time_end),
@@ -743,7 +743,7 @@ export class TrajectoryStorage {
         error_message = COALESCE($11, tool_calls.error_message),
         title = COALESCE($12, tool_calls.title),
         output_path = COALESCE($13, tool_calls.output_path),
-        time_created = $14,
+        time_created = COALESCE($14, tool_calls.time_created),
         time_start = COALESCE($15, tool_calls.time_start),
         time_end = COALESCE($16, tool_calls.time_end),
         duration_ms = COALESCE($17, tool_calls.duration_ms),
@@ -1460,6 +1460,7 @@ export class TrajectoryStorage {
         working_directory = COALESCE($6, snapshots.working_directory),
         file_count = COALESCE($7, snapshots.file_count),
         file_list = COALESCE($8, snapshots.file_list),
+        time_created = COALESCE($9, snapshots.time_created),
         snapshot_order = COALESCE($10, snapshots.snapshot_order),
         metadata = COALESCE($11, snapshots.metadata)::jsonb
       RETURNING id
@@ -1508,6 +1509,7 @@ export class TrajectoryStorage {
         diff_stats = COALESCE($10, patches.diff_stats),
         original_content = COALESCE($11, patches.original_content),
         patched_content = COALESCE($12, patches.patched_content),
+        time_created = COALESCE($13, patches.time_created),
         patch_order = COALESCE($14, patches.patch_order),
         metadata = COALESCE($15, patches.metadata)::jsonb
       RETURNING id

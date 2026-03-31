@@ -368,6 +368,7 @@ export namespace SessionProcessor {
                       tokensInput: usage.tokens.input,
                       tokensOutput: usage.tokens.output,
                       tokensReasoning: usage.tokens.reasoning,
+                      timeCreated: input.assistantMessage.time.created,
                     })
                     // Capture message parts
                     for (const part of parts) {
@@ -564,6 +565,14 @@ export namespace SessionProcessor {
           }
           input.assistantMessage.time.completed = Date.now()
           await Session.updateMessage(input.assistantMessage)
+
+          if (sessionTrajectoryTracker.isEnabled()) {
+            await sessionTrajectoryTracker.captureAssistantMessage(input.assistantMessage.id, "", {
+              timeCreated: input.assistantMessage.time.created,
+              timeCompleted: input.assistantMessage.time.completed,
+            })
+          }
+
           if (needsCompaction) return "compact"
           if (blocked) return "stop"
           if (input.assistantMessage.error) return "stop"
