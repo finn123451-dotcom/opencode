@@ -509,9 +509,14 @@ export class TrajectoryStorage {
       }
 
       const query = `
-        INSERT INTO llm_messages (id, session_id, message_id, role, content, name, tool_calls, tool_call_id, tool_name, model, provider_id, time_created, metadata)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-        ON CONFLICT (id) DO NOTHING
+        INSERT INTO llm_messages (id, session_id, message_id, role, content, name, tool_calls, tool_call_id, tool_name, model, provider_id, time_created, time_end, duration_ms, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        ON CONFLICT (id) DO UPDATE SET
+          content = COALESCE(NULLIF($5, ''), llm_messages.content),
+          tool_calls = COALESCE($7, llm_messages.tool_calls),
+          time_end = COALESCE($13, llm_messages.time_end),
+          duration_ms = COALESCE($14, llm_messages.duration_ms),
+          metadata = COALESCE($15, llm_messages.metadata)::jsonb
       `
       await this.pool.query(query, [
         msg.id || uuidv4(),
@@ -526,8 +531,27 @@ export class TrajectoryStorage {
         model,
         providerId,
         msg.timeCreated || Date.now(),
+        msg.timeEnd || null,
+        msg.durationMs || null,
         JSON.stringify(msg.metadata || {}),
       ])
+    }
+  }
+
+  async updateLlmMessagesTiming(
+    sessionId: string,
+    messages: any[],
+    timeEnd: number,
+    durationMs: number,
+  ): Promise<void> {
+    for (const msg of messages) {
+      const msgId = msg.id || null
+      if (!msgId) continue
+
+      await this.pool.query(
+        `UPDATE llm_messages SET time_end = $1, duration_ms = $2 WHERE session_id = $3 AND id = $4`,
+        [timeEnd, durationMs, sessionId, msgId],
+      )
     }
   }
 

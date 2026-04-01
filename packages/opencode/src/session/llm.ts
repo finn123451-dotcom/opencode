@@ -48,11 +48,14 @@ export namespace LLM {
     onToolCallStart?: (toolCallId: string, toolName: string, input: any) => void
     onToolCallDelta?: (toolCallId: string, input: any) => void
     onToolCallResult?: (toolCallId: string, result: string) => void
+    onLLMResponse?: (timeEnd: number, durationMs: number) => void
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
 
   export async function stream(input: StreamInput) {
+    const requestStartTime = Date.now()
+
     const l = log
       .clone()
       .tag("providerID", input.model.providerID)
@@ -219,6 +222,13 @@ export namespace LLM {
         l.error("stream error", {
           error,
         })
+      },
+      onFinish: async (result) => {
+        if (input.onLLMResponse) {
+          const timeEnd = Date.now()
+          const durationMs = timeEnd - requestStartTime
+          input.onLLMResponse(timeEnd, durationMs)
+        }
       },
       async experimental_repairToolCall(failed) {
         const lower = failed.toolCall.toolName.toLowerCase()

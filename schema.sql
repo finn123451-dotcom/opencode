@@ -571,6 +571,8 @@ CREATE TABLE llm_messages (
     model VARCHAR(255),
     provider_id VARCHAR(255),
     time_created BIGINT NOT NULL,
+    time_end BIGINT,
+    duration_ms INTEGER,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

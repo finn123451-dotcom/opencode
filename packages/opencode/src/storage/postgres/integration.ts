@@ -94,6 +94,11 @@ export class OpenCodeIntegration {
     await trajectoryCapture.captureMessagesToLLM(sessionId, messages)
   }
 
+  async updateLlmMessageTiming(sessionId: string, messages: any[], timeEnd: number, durationMs: number): Promise<void> {
+    await this.ensureInitialized()
+    await trajectoryCapture.updateLlmMessageTiming(sessionId, messages, timeEnd, durationMs)
+  }
+
   async captureReasoning(
     messageId: string,
     reasoning: {

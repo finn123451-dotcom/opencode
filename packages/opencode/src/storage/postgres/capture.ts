@@ -179,6 +179,16 @@ export class TrajectoryCapture extends EventEmitter {
     }
   }
 
+  async updateLlmMessageTiming(sessionId: string, messages: any[], timeEnd: number, durationMs: number): Promise<void> {
+    if (!this.config.enabled || !this.currentSessionId || !messages?.length) return
+
+    try {
+      await trajectoryStorage.updateLlmMessagesTiming(sessionId, messages, timeEnd, durationMs)
+    } catch (error) {
+      logger.error("failed to update LLM message timing", { error })
+    }
+  }
+
   private resetSession(): void {
     this.currentSessionId = null
     this.currentMessageId = null
@@ -302,7 +312,7 @@ export class TrajectoryCapture extends EventEmitter {
       tokensCacheRead: metadata?.tokensCacheRead || 0,
       tokensCacheWrite: metadata?.tokensCacheWrite || 0,
       timeCreated: metadata?.timeCreated ?? Date.now(),
-      timeCompleted: metadata?.timeCompleted ?? null,
+      timeCompleted: metadata?.timeCompleted,
       stepOrder: this.messageBuffer.length,
     }
 

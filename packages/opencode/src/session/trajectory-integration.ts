@@ -158,6 +158,16 @@ export class SessionTrajectoryTracker extends EventEmitter {
     }
   }
 
+  async updateLlmMessageTiming(sessionId: string, messages: any[], timeEnd: number, durationMs: number): Promise<void> {
+    if (!this.enabled) return
+
+    try {
+      await opencodeIntegration.updateLlmMessageTiming(sessionId, messages, timeEnd, durationMs)
+    } catch {
+      // Silently fail
+    }
+  }
+
   async endSession(status: "completed" | "failed" | "cancelled" = "completed"): Promise<string | null> {
     if (!this.enabled || !this.sessionId) return null
 
@@ -199,6 +209,8 @@ export class SessionTrajectoryTracker extends EventEmitter {
     messageId: string,
     content: string,
     metadata?: {
+      agent?: string
+      parentId?: string
       model?: string
       providerId?: string
       finishReason?: string

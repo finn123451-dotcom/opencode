@@ -634,6 +634,11 @@ export namespace SessionPrompt {
               sessionTrajectoryTracker.captureMessagesToLLM(sessionID, messages)
             }
           : undefined,
+        onLLMResponse: sessionTrajectoryTracker.isEnabled()
+          ? (timeEnd: number, durationMs: number) => {
+              sessionTrajectoryTracker.updateLlmMessageTiming(sessionID, [], timeEnd, durationMs)
+            }
+          : undefined,
       })
       if (result === "stop") {
         if (sessionTrajectoryTracker.isEnabled()) {
