@@ -630,13 +630,13 @@ export namespace SessionPrompt {
             }
           : undefined,
         onUserMessage: sessionTrajectoryTracker.isEnabled()
-          ? (messages: any[]) => {
-              sessionTrajectoryTracker.captureMessagesToLLM(sessionID, messages)
+          ? (messages: any[], startTime: number) => {
+              sessionTrajectoryTracker.captureMessagesToLLM(sessionID, messages, startTime)
             }
           : undefined,
         onLLMResponse: sessionTrajectoryTracker.isEnabled()
-          ? (timeEnd: number, durationMs: number) => {
-              sessionTrajectoryTracker.updateLlmMessageTiming(sessionID, [], timeEnd, durationMs)
+          ? (messages: any[], timeEnd: number, durationMs: number) => {
+              sessionTrajectoryTracker.updateLlmMessageTiming(sessionID, messages, timeEnd, durationMs)
             }
           : undefined,
       })

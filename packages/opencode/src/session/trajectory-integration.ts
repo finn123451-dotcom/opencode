@@ -148,11 +148,11 @@ export class SessionTrajectoryTracker extends EventEmitter {
     }
   }
 
-  async captureMessagesToLLM(sessionId: string, messages: any[]): Promise<void> {
+  async captureMessagesToLLM(sessionId: string, messages: any[], startTime?: number): Promise<void> {
     if (!this.enabled) return
 
     try {
-      await opencodeIntegration.captureMessagesToLLM(sessionId, messages)
+      await opencodeIntegration.captureMessagesToLLM(sessionId, messages, startTime)
     } catch {
       // Silently fail
     }

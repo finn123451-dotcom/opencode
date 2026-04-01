@@ -477,12 +477,14 @@ export class TrajectoryStorage {
     }
   }
 
-  async createLlmMessages(sessionId: string, messages: any[]): Promise<void> {
+  async createLlmMessages(sessionId: string, messages: any[], startTime?: number): Promise<void> {
     // Check if session exists
     const sessionCheck = await this.pool.query("SELECT id FROM sessions WHERE id = $1", [sessionId])
     if (sessionCheck.rows.length === 0) {
       return // Skip if session doesn't exist
     }
+
+    const timeCreated = startTime || Date.now()
 
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i]
@@ -530,7 +532,7 @@ export class TrajectoryStorage {
         toolName,
         model,
         providerId,
-        msg.timeCreated || Date.now(),
+        msg.timeCreated || timeCreated,
         msg.timeEnd || null,
         msg.durationMs || null,
         JSON.stringify(msg.metadata || {}),

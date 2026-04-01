@@ -169,11 +169,11 @@ export class TrajectoryCapture extends EventEmitter {
     }
   }
 
-  async captureMessagesToLLM(sessionId: string, messages: any[]): Promise<void> {
+  async captureMessagesToLLM(sessionId: string, messages: any[], startTime?: number): Promise<void> {
     if (!this.config.enabled || !this.currentSessionId || !messages?.length) return
 
     try {
-      await trajectoryStorage.createLlmMessages(sessionId, messages)
+      await trajectoryStorage.createLlmMessages(sessionId, messages, startTime)
     } catch (error) {
       logger.error("failed to capture messages to LLM", { error })
     }

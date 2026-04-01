@@ -41,14 +41,14 @@ export namespace LLM {
     retries?: number
     // Callbacks for trajectory capture at the source
     onSystemPrompt?: (systemPrompt: string) => void
-    onUserMessage?: (messages: ModelMessage[]) => void
+    onUserMessage?: (messages: ModelMessage[], startTime: number) => void
     onReasoningStart?: (reasoningId: string, metadata?: any) => void
     onReasoningDelta?: (reasoningId: string, text: string) => void
     onReasoningEnd?: (reasoningId: string, content: string) => void
     onToolCallStart?: (toolCallId: string, toolName: string, input: any) => void
     onToolCallDelta?: (toolCallId: string, input: any) => void
     onToolCallResult?: (toolCallId: string, result: string) => void
-    onLLMResponse?: (timeEnd: number, durationMs: number) => void
+    onLLMResponse?: (messages: ModelMessage[], timeEnd: number, durationMs: number) => void
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
@@ -131,7 +131,7 @@ export namespace LLM {
       ...input.messages,
     ]
     if (input.onUserMessage) {
-      input.onUserMessage(messagesToLLM)
+      input.onUserMessage(messagesToLLM, requestStartTime)
     }
 
     const variant =
@@ -227,7 +227,7 @@ export namespace LLM {
         if (input.onLLMResponse) {
           const timeEnd = Date.now()
           const durationMs = timeEnd - requestStartTime
-          input.onLLMResponse(timeEnd, durationMs)
+          input.onLLMResponse(messagesToLLM, timeEnd, durationMs)
         }
       },
       async experimental_repairToolCall(failed) {

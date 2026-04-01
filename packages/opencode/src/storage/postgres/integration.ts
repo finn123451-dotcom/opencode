@@ -89,9 +89,9 @@ export class OpenCodeIntegration {
     await trajectoryCapture.updateSessionSystemPrompt(sessionId, systemPrompt)
   }
 
-  async captureMessagesToLLM(sessionId: string, messages: any[]): Promise<void> {
+  async captureMessagesToLLM(sessionId: string, messages: any[], startTime?: number): Promise<void> {
     await this.ensureInitialized()
-    await trajectoryCapture.captureMessagesToLLM(sessionId, messages)
+    await trajectoryCapture.captureMessagesToLLM(sessionId, messages, startTime)
   }
 
   async updateLlmMessageTiming(sessionId: string, messages: any[], timeEnd: number, durationMs: number): Promise<void> {
