@@ -548,13 +548,13 @@ export class TrajectoryStorage {
   ): Promise<void> {
     try {
       for (const msg of messages) {
-        const msgId = msg.id || null
-        if (!msgId) continue
+        const msgTimeCreated = msg.timeCreated || msg.time_created
+        if (!msgTimeCreated) continue
 
         try {
           await this.pool.query(
-            `UPDATE llm_messages SET time_end = $1, duration_ms = $2 WHERE session_id = $3 AND id = $4`,
-            [timeEnd, durationMs, sessionId, msgId],
+            `UPDATE llm_messages SET time_end = $1, duration_ms = $2 WHERE session_id = $3 AND time_created = $4`,
+            [timeEnd, durationMs, sessionId, msgTimeCreated],
           )
         } catch (updateError) {
           // Silently fail for individual message updates
