@@ -114,21 +114,24 @@ export namespace LLM {
     }
 
     // Capture messages being sent to LLM
-    const messagesToLLM = [
+    const messagesToLLM: any[] = [
       ...(isCodex
         ? [
             {
               role: "user",
               content: system.join("\n\n"),
-            } as ModelMessage,
+              timeCreated: requestStartTime,
+            },
           ]
-        : system.map(
-            (x): ModelMessage => ({
-              role: "system",
-              content: x,
-            }),
-          )),
-      ...input.messages,
+        : system.map((x) => ({
+            role: "system",
+            content: x,
+            timeCreated: requestStartTime,
+          }))),
+      ...input.messages.map((msg) => ({
+        ...msg,
+        timeCreated: requestStartTime,
+      })),
     ]
     if (input.onUserMessage) {
       input.onUserMessage(messagesToLLM, requestStartTime)

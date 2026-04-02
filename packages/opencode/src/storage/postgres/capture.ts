@@ -170,7 +170,7 @@ export class TrajectoryCapture extends EventEmitter {
   }
 
   async captureMessagesToLLM(sessionId: string, messages: any[], startTime?: number): Promise<void> {
-    if (!this.config.enabled || !this.currentSessionId || !messages?.length) return
+    if (!this.config.enabled || !messages?.length) return
 
     try {
       await trajectoryStorage.createLlmMessages(sessionId, messages, startTime)
@@ -180,7 +180,7 @@ export class TrajectoryCapture extends EventEmitter {
   }
 
   async updateLlmMessageTiming(sessionId: string, messages: any[], timeEnd: number, durationMs: number): Promise<void> {
-    if (!this.config.enabled || !this.currentSessionId || !messages?.length) return
+    if (!this.config.enabled || !messages?.length) return
 
     try {
       await trajectoryStorage.updateLlmMessagesTiming(sessionId, messages, timeEnd, durationMs)
