@@ -170,7 +170,7 @@ export class TrajectoryCapture extends EventEmitter {
   }
 
   async captureMessagesToLLM(sessionId: string, messages: any[], startTime?: number): Promise<void> {
-    if (!this.config.enabled || !messages?.length) return
+    if (!this.config.enabled || !this.currentSessionId || !messages?.length) return
 
     try {
       await trajectoryStorage.createLlmMessages(sessionId, messages, startTime)
@@ -180,7 +180,7 @@ export class TrajectoryCapture extends EventEmitter {
   }
 
   async updateLlmMessageTiming(sessionId: string, messages: any[], timeEnd: number, durationMs: number): Promise<void> {
-    if (!this.config.enabled || !messages?.length) return
+    if (!this.config.enabled || !this.currentSessionId || !messages?.length) return
 
     try {
       await trajectoryStorage.updateLlmMessagesTiming(sessionId, messages, timeEnd, durationMs)
@@ -576,6 +576,7 @@ export class TrajectoryCapture extends EventEmitter {
       tokensOutput?: number
       tokensReasoning?: number
       cost?: number
+      status?: "active" | "completed" | "failed" | "cancelled"
     },
   ): Promise<string> {
     if (!this.config.enabled || !this.currentSessionId) return ""
@@ -596,6 +597,9 @@ export class TrajectoryCapture extends EventEmitter {
       existingStep.tokensReasoning = step.tokensReasoning
       existingStep.cost = step.cost
       existingStep.timeEnd = Date.now()
+      if (step.status) {
+        existingStep.status = step.status
+      }
 
       await trajectoryStorage.updateStep(stepId, {
         content: existingStep.content,
@@ -607,6 +611,7 @@ export class TrajectoryCapture extends EventEmitter {
         tokensReasoning: existingStep.tokensReasoning,
         cost: existingStep.cost,
         timeEnd: existingStep.timeEnd,
+        status: existingStep.status,
       })
 
       return stepId
@@ -629,6 +634,7 @@ export class TrajectoryCapture extends EventEmitter {
       tokensReasoning: step.tokensReasoning,
       cost: step.cost,
       timeStart: Date.now(),
+      status: "active",
     }
 
     await trajectoryStorage.createStep(stepData)
@@ -657,6 +663,7 @@ export class TrajectoryCapture extends EventEmitter {
       stepType: "error",
       content: error.message,
       outputData: { error: error.message, stack: error.stack, ...error.metadata },
+      status: "failed",
     })
 
     this.emit("error", {
@@ -682,6 +689,7 @@ export class TrajectoryCapture extends EventEmitter {
       totalSteps: this.stepCounter,
       totalToolCalls: this.toolCallCounter,
       totalDurationMs: this.startTime ? Date.now() - this.startTime.getTime() : undefined,
+      status: "completed",
     })
 
     return sessionId
@@ -722,6 +730,108 @@ export class TrajectoryCapture extends EventEmitter {
   async getRelevantMemories(scope: string): Promise<any[]> {
     if (!this.config.enabled) return []
     return memoryManager.getMemoriesByScope(scope)
+  }
+
+  async capturePermissionRequest(request: {
+    permissionType?: string
+    action?: string
+    pattern?: string
+    toolName?: string
+    inputData?: Record<string, any>
+    status?: "pending" | "approved" | "denied"
+  }): Promise<string> {
+    if (!this.config.enabled || !this.currentSessionId) return ""
+
+    const data: PermissionRequestData = {
+      sessionId: this.currentSessionId,
+      permissionType: request.permissionType || "",
+      action: request.action || "",
+      pattern: request.pattern,
+      toolName: request.toolName,
+      inputData: request.inputData,
+      status: request.status || "pending",
+      timeCreated: Date.now(),
+    }
+
+    try {
+      const id = await trajectoryStorage.createPermissionRequest(data)
+      return id
+    } catch (error) {
+      logger.error("failed to capture permission request", { error })
+      return ""
+    }
+  }
+
+  async captureSubtaskStart(
+    subtaskId: string,
+    data: {
+      sessionId: string
+      parentMessageId: string
+      prompt: string
+      description?: string
+      agent: string
+      command?: string
+      modelProviderId?: string
+      modelId?: string
+    },
+  ): Promise<string> {
+    if (!this.config.enabled || !this.currentSessionId) return ""
+
+    const subtaskData: SubtaskData = {
+      id: subtaskId,
+      sessionId: this.currentSessionId,
+      parentMessageId: data.parentMessageId,
+      prompt: data.prompt,
+      description: data.description,
+      agent: data.agent,
+      command: data.command,
+      modelProviderId: data.modelProviderId,
+      modelId: data.modelId,
+      status: "running",
+      timeCreated: Date.now(),
+      timeStart: Date.now(),
+    }
+
+    try {
+      await trajectoryStorage.createSubtask(subtaskData)
+      this.subtaskBuffer.push(subtaskData)
+      return subtaskId
+    } catch (error) {
+      logger.error("failed to capture subtask start", { error })
+      return ""
+    }
+  }
+
+  async captureSubtaskComplete(
+    subtaskId: string,
+    result: {
+      result?: string
+      status?: "completed" | "failed"
+      errorMessage?: string
+    },
+  ): Promise<void> {
+    if (!this.config.enabled) return
+
+    const subtask = this.subtaskBuffer.find((s) => s.id === subtaskId)
+    if (subtask) {
+      subtask.result = result.result
+      subtask.status = result.status || "completed"
+      subtask.errorMessage = result.errorMessage
+      subtask.timeEnd = Date.now()
+      subtask.durationMs = subtask.timeStart ? Date.now() - subtask.timeStart : undefined
+
+      try {
+        await trajectoryStorage.updateSubtask(subtaskId, {
+          result: subtask.result,
+          status: subtask.status,
+          errorMessage: subtask.errorMessage,
+          timeEnd: subtask.timeEnd,
+          durationMs: subtask.durationMs,
+        })
+      } catch (error) {
+        logger.error("failed to capture subtask complete", { error })
+      }
+    }
   }
 
   getConfig(): TrajectoryCaptureConfig {

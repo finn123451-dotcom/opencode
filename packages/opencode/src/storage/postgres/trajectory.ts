@@ -260,6 +260,26 @@ export interface RetryData {
   metadata?: Record<string, any>
 }
 
+export interface SubtaskData {
+  id: string
+  sessionId: string
+  parentMessageId: string
+  prompt: string
+  description?: string
+  agent: string
+  command?: string
+  modelProviderId?: string
+  modelId?: string
+  result?: string
+  status: "pending" | "running" | "completed" | "failed"
+  errorMessage?: string
+  timeCreated: number
+  timeStart?: number
+  timeEnd?: number
+  durationMs?: number
+  metadata?: Record<string, any>
+}
+
 export interface ExecutionLogData {
   sessionId: string
   stepId?: string
@@ -443,6 +463,7 @@ export class TrajectoryStorage {
       totalSteps?: number
       totalToolCalls?: number
       totalDurationMs?: number
+      status?: string
     },
   ): Promise<void> {
     const updates: string[] = []
@@ -468,6 +489,10 @@ export class TrajectoryStorage {
     if (data.totalDurationMs !== undefined) {
       updates.push(`duration_ms = $${paramIndex++}`)
       values.push(data.totalDurationMs)
+    }
+    if (data.status !== undefined) {
+      updates.push(`status = $${paramIndex++}`)
+      values.push(data.status)
     }
 
     if (updates.length > 0) {
@@ -1125,6 +1150,84 @@ export class TrajectoryStorage {
     await this.pool.query(`UPDATE sessions SET ${setClauses.join(", ")} WHERE id = $${paramIndex}`, values)
   }
 
+  async createSubtask(data: SubtaskData): Promise<string> {
+    const query = `
+      INSERT INTO subtasks (id, session_id, parent_message_id, prompt, description, agent, command, model_provider_id, model_id, result, status, error_message, time_created, time_start, time_end, duration_ms, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      ON CONFLICT (id) DO UPDATE SET
+        session_id = COALESCE($2, subtasks.session_id),
+        parent_message_id = COALESCE($3, subtasks.parent_message_id),
+        prompt = COALESCE($4, subtasks.prompt),
+        description = COALESCE($5, subtasks.description),
+        agent = COALESCE($6, subtasks.agent),
+        command = COALESCE($7, subtasks.command),
+        model_provider_id = COALESCE($8, subtasks.model_provider_id),
+        model_id = COALESCE($9, subtasks.model_id),
+        result = COALESCE($10, subtasks.result),
+        status = COALESCE($11, subtasks.status),
+        error_message = COALESCE($12, subtasks.error_message),
+        time_start = COALESCE($14, subtasks.time_start),
+        time_end = COALESCE($15, subtasks.time_end),
+        duration_ms = COALESCE($16, subtasks.duration_ms),
+        metadata = COALESCE($17, subtasks.metadata)::jsonb
+      RETURNING id
+    `
+
+    const result = await this.pool.query(query, [
+      data.id,
+      data.sessionId,
+      data.parentMessageId,
+      data.prompt,
+      data.description || null,
+      data.agent,
+      data.command || null,
+      data.modelProviderId || null,
+      data.modelId || null,
+      data.result || null,
+      data.status,
+      data.errorMessage || null,
+      data.timeCreated,
+      data.timeStart || null,
+      data.timeEnd || null,
+      data.durationMs || null,
+      JSON.stringify(data.metadata || {}),
+    ])
+
+    return result.rows[0].id
+  }
+
+  async updateSubtask(id: string, updates: Partial<SubtaskData>): Promise<void> {
+    const setClauses: string[] = []
+    const values: any[] = []
+    let paramIndex = 1
+
+    if (updates.result !== undefined) {
+      setClauses.push(`result = $${paramIndex++}`)
+      values.push(updates.result)
+    }
+    if (updates.status !== undefined) {
+      setClauses.push(`status = $${paramIndex++}`)
+      values.push(updates.status)
+    }
+    if (updates.errorMessage !== undefined) {
+      setClauses.push(`error_message = $${paramIndex++}`)
+      values.push(updates.errorMessage)
+    }
+    if (updates.timeEnd !== undefined) {
+      setClauses.push(`time_end = $${paramIndex++}`)
+      values.push(updates.timeEnd)
+    }
+    if (updates.durationMs !== undefined) {
+      setClauses.push(`duration_ms = $${paramIndex++}`)
+      values.push(updates.durationMs)
+    }
+
+    if (setClauses.length === 0) return
+
+    values.push(id)
+    await this.pool.query(`UPDATE subtasks SET ${setClauses.join(", ")} WHERE id = $${paramIndex}`, values)
+  }
+
   async getSessionComplete(sessionId: string): Promise<any> {
     const result = await this.pool.query("SELECT * FROM sessions WHERE id = $1", [sessionId])
     return result.rows[0] || null
@@ -1459,6 +1562,43 @@ export class TrajectoryStorage {
     ])
 
     return result.rows[0].id
+  }
+
+  async updatePermissionRequest(
+    id: string,
+    data: {
+      status?: "pending" | "approved" | "denied"
+      userResponse?: string
+      responseMessage?: string
+      respondedAt?: number
+    },
+  ): Promise<void> {
+    const setClauses: string[] = []
+    const values: any[] = []
+    let paramIndex = 1
+
+    if (data.status !== undefined) {
+      setClauses.push(`status = $${paramIndex++}`)
+      values.push(data.status)
+    }
+    if (data.userResponse !== undefined) {
+      setClauses.push(`user_response = $${paramIndex++}`)
+      values.push(data.userResponse)
+    }
+    if (data.responseMessage !== undefined) {
+      setClauses.push(`response_message = $${paramIndex++}`)
+      values.push(data.responseMessage)
+    }
+    if (data.respondedAt !== undefined) {
+      setClauses.push(`responded_at = $${paramIndex++}`)
+      values.push(data.respondedAt)
+    }
+
+    if (setClauses.length > 0) {
+      values.push(id)
+      const query = `UPDATE permission_requests SET ${setClauses.join(", ")} WHERE id = $${paramIndex}`
+      await this.pool.query(query, values)
+    }
   }
 
   async createFileOperation(data: FileOperationData): Promise<string> {

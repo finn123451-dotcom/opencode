@@ -197,11 +197,27 @@ export class OpenCodeIntegration {
       tokensOutput?: number
       tokensReasoning?: number
       cost?: number
+      status?: "active" | "completed" | "failed" | "cancelled"
     },
   ): Promise<string> {
     await this.ensureInitialized()
     if (this.config.captureSteps) {
       return await trajectoryCapture.captureStep(messageId, step)
+    }
+    return ""
+  }
+
+  async capturePermissionRequest(request: {
+    permissionType?: string
+    action?: string
+    pattern?: string
+    toolName?: string
+    inputData?: Record<string, any>
+    status?: "pending" | "approved" | "denied"
+  }): Promise<string> {
+    await this.ensureInitialized()
+    if (this.config.captureErrors) {
+      return await trajectoryCapture.capturePermissionRequest(request as any)
     }
     return ""
   }
@@ -383,6 +399,35 @@ export class OpenCodeIntegration {
     }
 
     return sessionId
+  }
+
+  async captureSubtaskStart(
+    subtaskId: string,
+    data: {
+      sessionId: string
+      parentMessageId: string
+      prompt: string
+      description?: string
+      agent: string
+      command?: string
+      modelProviderId?: string
+      modelId?: string
+    },
+  ): Promise<string> {
+    await this.ensureInitialized()
+    return await trajectoryCapture.captureSubtaskStart(subtaskId, data)
+  }
+
+  async captureSubtaskComplete(
+    subtaskId: string,
+    result: {
+      result?: string
+      status?: "completed" | "failed"
+      errorMessage?: string
+    },
+  ): Promise<void> {
+    await this.ensureInitialized()
+    return await trajectoryCapture.captureSubtaskComplete(subtaskId, result)
   }
 
   async searchKnowledge(

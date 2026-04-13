@@ -4,6 +4,8 @@ import { MessageV2 } from "./message-v2"
 import { opencodeIntegration, isStorageEnabled } from "../storage/postgres"
 import { Config } from "@/config/config"
 import { Log } from "../util/log"
+import { PermissionNext } from "../permission/next"
+import { Bus } from "../bus"
 
 const logger = Log.create({ service: "trajectory-tracker" })
 
@@ -81,6 +83,21 @@ export class SessionTrajectoryTracker extends EventEmitter {
         try {
           await opencodeIntegration.initialize()
           logger.info("storage enabled and initialized successfully")
+
+          Bus.on(PermissionNext.Event.Replied, async (event) => {
+            if (!this.enabled || !this.sessionId) return
+
+            try {
+              await opencodeIntegration.capturePermissionRequest({
+                permissionType: "",
+                action: event.reply === "approve" ? "approved" : "denied",
+                toolName: "",
+                status: event.reply === "approve" ? "approved" : "denied",
+              })
+            } catch (err) {
+              logger.error("failed to capture permission reply", { error: err })
+            }
+          })
         } catch (initError) {
           logger.error("failed to initialize storage, continuing without storage", { error: initError })
           this.enabled = false
@@ -445,6 +462,7 @@ export class SessionTrajectoryTracker extends EventEmitter {
           tokensOutput: stepData.tokensOutput,
           tokensReasoning: stepData.tokensReasoning,
           cost: stepData.cost,
+          status: "completed",
         })
       }
     } catch (error) {
